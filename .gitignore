@@ -1,0 +1,73 @@
+# .gitignore for Nexus Project
+
+# Go
+bin/
+vendor/
+*.exe
+*.dll
+*.so
+*.dylib
+go.sum
+
+# Node
+node_modules/
+dist/
+build/
+.expo/
+*.tgz
+pnpm-lock.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Test coverage
+coverage/
+*.out
+
+# Build artifacts
+dist/
+build/
+bin/
+obj/
+
+# Cache
+.cache/
+
+# Backup files
+*.bak
+*.backup
