@@ -5,22 +5,22 @@
 [![Cassandra](https://img.shields.io/badge/Cassandra-4.1-blue)](https://cassandra.apache.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-**Nexus** é uma plataforma de comunicação em tempo real que combina o melhor do Discord (chat, voz, vídeo) com o melhor do Linear (gerenciamento de tarefas, Kanban). Construído com tecnologias modernas e performáticas.
+**Nexus** is a real-time communication platform that combines the best of Discord (chat, voice, video) with the best of Linear (task management, Kanban). Built with modern, high-performance technologies.
 
-## ✨ Características
+## ✨ Features
 
-- 💬 **Chat em Tempo Real** - Mensagens instantâneas com WebSocket
-- 🎙️ **Voice & Video** - Comunicação de áudio/vídeo via WebRTC + SFU
-- 📋 **Kanban Boards** - Gerenciamento de tarefas com drag-and-drop
-- 👥 **Presença em Tempo Real** - Ver quem está online/offline
-- 🔐 **Autenticação Segura** - JWT com refresh tokens
+- 💬 **Real-Time Chat** - Instant messaging via WebSocket
+- 🎙️ **Voice & Video** - Audio/video communication using WebRTC + SFU
+- 📋 **Kanban Boards** - Task management with drag-and-drop
+- 👥 **Real-Time Presence** - See who’s online/offline
+- 🔐 **Secure Authentication** - JWT with refresh tokens
 - ⚡ **Performance** - 60 fps UI, <1ms JS, <2ms UI thread
-- 🌍 **Distribuído** - Cassandra com replicação multi-DC
-- 📱 **Mobile-First** - React-Native para iOS/Android
-- 🔄 **Sync em Tempo Real** - NATS JetStream para eventos
+- 🌍 **Distributed** - Cassandra with multi-DC replication
+- 📱 **Mobile-First** - React Native for iOS/Android
+- 🔄 **Real-Time Sync** - NATS JetStream for event streaming
 - 🛡️ **Enterprise Ready** - Logging, monitoring, health checks
 
-## 🏗️ Arquitetura
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -48,19 +48,19 @@
 
 ## 🚀 Quick Start
 
-### Pré-requisitos
+### Prerequisites
 - Node.js 18+
 - Go 1.22+
 - Docker & Docker Compose
 
-### Instalação Rápida
+### Quick Installation
 
 ```bash
-# Clonar repositório
-git clone https://github.com/seu-user/nexus.git
+# Clone the repository
+git clone https://github.com/your-user/nexus.git
 cd nexus
 
-# Setup infraestrutura (Cassandra, NATS, Redis, PostgreSQL)
+# Set up infrastructure (Cassandra, NATS, Redis, PostgreSQL)
 docker-compose up -d
 
 # Backend
@@ -70,20 +70,20 @@ go mod download
 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/nexus-api ./cmd/api
 ./bin/nexus-api
 
-# Em outro terminal, Frontend
+# In another terminal, Frontend
 cd frontend
 pnpm install
 npx expo prebuild
 npx expo run:ios  # ou run:android
 ```
 
-Para mais detalhes, veja [SETUP.md](./SETUP.md)
+For more details, see [SETUP.md](./SETUP.md)
 
-## 📁 Estrutura do Projeto
+## 📁 Project Structure
 
 ```
 nexus/
-├── backend/                    # Serviços Go
+├── backend/                    # Go Services
 │   ├── cmd/
 │   │   ├── api/               # REST API Server
 │   │   ├── ws/                # WebSocket Server
@@ -100,8 +100,8 @@ nexus/
 │
 ├── frontend/                   # React-Native App
 │   ├── app/
-│   │   ├── screens/           # Telas principais
-│   │   ├── components/        # Componentes UI
+│   │   ├── screens/           # Main screens
+│   │   ├── components/        # UI components
 │   │   ├── hooks/             # Custom hooks
 │   │   ├── services/          # API client
 │   │   └── store/             # State management
@@ -115,19 +115,19 @@ nexus/
 │   ├── turn/
 │   └── docker-compose.yml
 │
-├── docs/                       # Documentação
+├── docs/                       # Documentation
 │   ├── API.md
 │   ├── ARCHITECTURE.md
 │   └── CONTRIBUTING.md
 │
-└── PROJECT_SPEC.md            # Especificação técnica
+└── PROJECT_SPEC.md            # Technical specification
 ```
 
-## 🔧 Stack Técnico
+## 🔧 Tech Stack
 
 ### Backend
-- **Linguagem**: Go 1.22
-- **Protocolos**: gRPC, WebSocket, HTTP/REST
+- **Language**: Go 1.22
+- **Protocols**: gRPC, WebSocket, HTTP/REST
 - **Message Queue**: NATS JetStream
 - **Database**: Apache Cassandra 4.1
 - **WebRTC**: Pion SFU
@@ -135,51 +135,51 @@ nexus/
 
 ### Frontend
 - **Framework**: React-Native 0.74
-- **Linguagem**: TypeScript
+- **Language**: TypeScript
 - **Engine**: Hermes
-- **Animações**: Reanimated 3
-- **Listas**: FlashList
-- **State**: Legend-State + MMKV
-- **HTTP**: Axios
+- **Animations**: Reanimated 3
+- **Lists**: FlashList
+- **State Management**: Legend-State + MMKV
+- **HTTP Client**: Axios
 
-### Infraestrutura
-- **Container**: Docker & Docker Compose
-- **Orquestração**: Kubernetes (ready)
-- **Banco de Dados**: Cassandra, PostgreSQL, Redis
-- **TURN**: coturn
+### Infrastructure
+- **Containerization**: Docker & Docker Compose
+- **Orchestration**: Kubernetes (ready)
+- **Databases**: Cassandra, PostgreSQL, Redis
+- **TURN Server**: coturn
 
-## 📚 Documentação
+## 📚 Documentation
 
-- [API Reference](./docs/API.md) - Endpoints REST e WebSocket
-- [Architecture](./docs/ARCHITECTURE.md) - Design patterns e decisões
-- [Setup Guide](./SETUP.md) - Instalação e configuração
-- [Contributing](./docs/CONTRIBUTING.md) - Como contribuir
+- [API Reference](./docs/API.md) - REST and WebSocket endpoints
+- [Architecture](./docs/ARCHITECTURE.md) - Design patterns and decisions
+- [Setup Guide](./SETUP.md) - Installation and configuration
+- [Contributing](./docs/CONTRIBUTING.md) - How to contribute
 
 ## 🗄️ Database Schema
 
 ### Cassandra Tables
 
 ```sql
--- Mensagens (particionada por channel + bucket)
+-- Messages (partitioned by channel + bucket)
 messages_by_channel (channel_id, bucket, ts, msg_id)
 
--- Tarefas (Kanban)
+-- Tasks (Kanban)
 tasks_by_channel (channel_id, position, task_id)
 
--- Presença de usuários
+-- User presence
 user_presence (user_id)
 
--- Usuários
+-- Users
 users (user_id)
 
--- Canais
+-- Channels
 channels (channel_id)
 
--- Sessões de voz
+-- Voice sessions
 voice_sessions (session_id)
 ```
 
-## 🔐 Autenticação
+## 🔐 Authentication
 
 ```
 POST /login
@@ -199,10 +199,10 @@ Response:
 ## 🌐 WebSocket API
 
 ```typescript
-// Conectar
+// Connect
 const ws = new WebSocket('ws://localhost:8080/ws?user_id=USER_ID');
 
-// Tipos de mensagens
+// Message types
 {
   "type": "message",
   "channelID": "uuid",
@@ -226,8 +226,8 @@ const ws = new WebSocket('ws://localhost:8080/ws?user_id=USER_ID');
 - ✅ **60 fps UI** - <1ms JavaScript, <2ms UI thread
 - ✅ **Zero-copy** - Go buffer management
 - ✅ **Aggressive caching** - Legend-State + MMKV
-- ✅ **Ultra-flat structures** - Sem deep nesting
-- ✅ **Reusable components** - Otimizadas com memoization
+- ✅ **Ultra-flat structures** - No deep nesting
+- ✅ **Reusable components** - Optimized with memoization
 
 ## 🚢 Deployment
 
@@ -247,16 +247,16 @@ kubectl port-forward svc/nexus-api 8000:8000
 ## 📈 Monitoring
 
 - **Logs**: `docker logs <container>`
-- **Metrics**: Prometheus (em desenvolvimento)
-- **Traces**: Jaeger (em desenvolvimento)
+- **Metrics**: Prometheus (in development)
+- **Traces**: Jaeger (in development)
 - **Health**: `/health` endpoint
 
-## 🤝 Contribuindo
+## 🤝 Contributing
 
-Veja [CONTRIBUTING.md](./docs/CONTRIBUTING.md) para guidelines.
+See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for guidelines.
 
 ```bash
-# 1. Fork o repo
+# 1. Fork the repo
 # 2. Create feature branch
 git checkout -b feature/awesome-feature
 
@@ -273,21 +273,20 @@ git push origin feature/awesome-feature
 
 MIT © 2025 Nexus
 
-## 🙏 Agradecimentos
+## 🙏 Acknowledgments
 
-- Discord API - inspiração em design
-- Linear App - inspiração em UX
+- Discord API - design inspiration
+- Linear App - UX inspiration
 - Pion - WebRTC SDK
-- Cassandra - database distribuído
+- Cassandra - distributed database
 
-## 📞 Suporte
+## 📞 Support
 
-- 📧 Email: support@nexus.app
-- 🐙 GitHub Issues: [Issues](https://github.com/seu-user/nexus/issues)
-- 💬 Discord: [Community](https://discord.gg/nexus)
+- 📧 Email: contato@eclipsiasoftware.com
+- 🐙 GitHub Issues: [Issues](https://github.com/DannyahIA/nexus/issues)
 
 ---
 
-**Feito com ❤️ por [Seu Nome]**
+**Made with ❤️ by [Dannyah](https://github.com/DannyahIA)**
 
-Última atualização: 5 de Novembro de 2025
+Last updated: November 5, 2025
