@@ -70,7 +70,7 @@ func main() {
 
 	// Setup rotas HTTP
 	mux := http.NewServeMux()
-	
+
 	// Rotas públicas
 	mux.HandleFunc("/health", healthHandler.Health)
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +94,7 @@ func main() {
 		if r.Method == http.MethodOptions {
 			return
 		}
-		
+
 		switch r.Method {
 		case http.MethodGet:
 			if r.URL.Query().Get("id") != "" {
@@ -117,10 +117,10 @@ func main() {
 		if r.Method == http.MethodOptions {
 			return
 		}
-		
+
 		channelID := r.URL.Query().Get("channelId")
 		messageID := r.URL.Query().Get("id")
-		
+
 		switch r.Method {
 		case http.MethodGet:
 			messageHandler.GetMessages(w, r)
@@ -153,10 +153,10 @@ func main() {
 		if r.Method == http.MethodOptions {
 			return
 		}
-		
+
 		channelID := r.URL.Query().Get("channelId")
 		taskID := r.URL.Query().Get("id")
-		
+
 		switch r.Method {
 		case http.MethodGet:
 			if channelID == "" {

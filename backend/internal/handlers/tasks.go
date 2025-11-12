@@ -25,7 +25,7 @@ func NewTaskHandler(logger *zap.Logger) *TaskHandler {
 type TaskRequest struct {
 	Title       string  `json:"title"`
 	Description string  `json:"description"`
-	Status      string  `json:"status"` // "todo", "in-progress", "done"
+	Status      string  `json:"status"`   // "todo", "in-progress", "done"
 	Priority    string  `json:"priority"` // "low", "medium", "high"
 	AssigneeID  *string `json:"assignee"`
 }

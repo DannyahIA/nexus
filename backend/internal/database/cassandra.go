@@ -241,12 +241,12 @@ func (db *CassandraDB) CreateChannel(channelID, name, channelType, ownerID, desc
 // GetAllChannels retorna todos os canais
 func (db *CassandraDB) GetAllChannels() ([]map[string]interface{}, error) {
 	query := `SELECT channel_id, name, type, owner_id, description, created_at, updated_at FROM nexus.channels`
-	
+
 	iter := db.session.Query(query).Iter()
 	defer iter.Close()
 
 	var results []map[string]interface{}
-	
+
 	var channelID, ownerID gocql.UUID
 	var name, channelType, description string
 	var createdAt, updatedAt time.Time
@@ -273,7 +273,7 @@ func (db *CassandraDB) GetAllChannels() ([]map[string]interface{}, error) {
 // GetChannelByID retorna um canal específico
 func (db *CassandraDB) GetChannelByID(channelID string) (map[string]interface{}, error) {
 	query := `SELECT channel_id, name, type, owner_id, description, created_at, updated_at FROM nexus.channels WHERE channel_id = ?`
-	
+
 	var chID, ownerID gocql.UUID
 	var name, channelType, description string
 	var createdAt, updatedAt time.Time

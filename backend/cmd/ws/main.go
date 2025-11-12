@@ -100,7 +100,7 @@ func (ws *WebSocketServer) Run() {
 		select {
 		case client := <-ws.register:
 			ws.clients[client] = true
-			ws.logger.Info("client connected", 
+			ws.logger.Info("client connected",
 				zap.String("userID", client.userID.String()),
 				zap.String("username", client.username))
 			ws.presenceCache.SetPresence(client.userID, "online")
@@ -109,7 +109,7 @@ func (ws *WebSocketServer) Run() {
 			if _, ok := ws.clients[client]; ok {
 				delete(ws.clients, client)
 				close(client.send)
-				ws.logger.Info("client disconnected", 
+				ws.logger.Info("client disconnected",
 					zap.String("userID", client.userID.String()),
 					zap.String("username", client.username))
 				ws.presenceCache.RemovePresence(client.userID)
@@ -296,7 +296,7 @@ func (ws *WebSocketServer) handlePresenceMessage(client *WebSocketConn, msg *Web
 	}
 
 	ws.presenceCache.SetPresence(client.userID, presenceData.Status)
-	
+
 	// Broadcast para todos os clientes
 	msgBytes, _ := json.Marshal(msg)
 	ws.broadcast <- msgBytes

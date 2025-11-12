@@ -60,7 +60,7 @@ func (ch *ChannelHandler) ListChannels(w http.ResponseWriter, r *http.Request) {
 			Members:   []string{}, // TODO: Buscar membros da tabela de relacionamento
 			CreatedAt: row["created_at"].(time.Time).Format(time.RFC3339),
 		}
-		
+
 		if desc, ok := row["description"].(string); ok {
 			channel.Description = desc
 		}
