@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	"github.com/nats-io/nats.go"
@@ -18,11 +21,44 @@ import (
 	"github.com/nexus/backend/internal/cache"
 )
 
+// WebSocketMessage representa uma mensagem WebSocket
+type WebSocketMessage struct {
+	Type      string          `json:"type"` // "message", "presence", "typing", "ping"
+	ChannelID string          `json:"channelId,omitempty"`
+	UserID    string          `json:"userId,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+}
+
+// MessageData representa os dados de uma mensagem de chat
+type MessageData struct {
+	ID        string    `json:"id"`
+	Content   string    `json:"content"`
+	AuthorID  string    `json:"authorId"`
+	Username  string    `json:"username"`
+	AvatarURL string    `json:"avatarUrl,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// PresenceData representa dados de presença
+type PresenceData struct {
+	Status   string    `json:"status"` // "online", "offline", "idle", "dnd"
+	LastSeen time.Time `json:"lastSeen"`
+}
+
+// TypingData representa dados de digitação
+type TypingData struct {
+	IsTyping bool   `json:"isTyping"`
+	Username string `json:"username"`
+}
+
 // WebSocketConn representa uma conexão WebSocket ativa
 type WebSocketConn struct {
-	userID string
-	conn   *websocket.Conn
-	send   chan []byte
+	userID   uuid.UUID
+	username string
+	conn     *websocket.Conn
+	send     chan []byte
+	channels map[string]bool // canais aos quais o usuário está inscrito
 }
 
 // WebSocketServer gerencia conexões WebSocket
@@ -64,21 +100,19 @@ func (ws *WebSocketServer) Run() {
 		select {
 		case client := <-ws.register:
 			ws.clients[client] = true
-			ws.logger.Info("client connected", zap.String("userID", client.userID))
-			// Parse userID string to UUID
-			if uid, err := uuid.FromString(client.userID); err == nil {
-				ws.presenceCache.SetPresence(uid, "online")
-			}
+			ws.logger.Info("client connected", 
+				zap.String("userID", client.userID.String()),
+				zap.String("username", client.username))
+			ws.presenceCache.SetPresence(client.userID, "online")
 
 		case client := <-ws.unregister:
 			if _, ok := ws.clients[client]; ok {
 				delete(ws.clients, client)
 				close(client.send)
-				ws.logger.Info("client disconnected", zap.String("userID", client.userID))
-				// Parse userID string to UUID
-				if uid, err := uuid.FromString(client.userID); err == nil {
-					ws.presenceCache.RemovePresence(uid)
-				}
+				ws.logger.Info("client disconnected", 
+					zap.String("userID", client.userID.String()),
+					zap.String("username", client.username))
+				ws.presenceCache.RemovePresence(client.userID)
 			}
 
 		case message := <-ws.broadcast:
@@ -96,22 +130,63 @@ func (ws *WebSocketServer) Run() {
 
 // HandleWS gerencia uma conexão WebSocket
 func (ws *WebSocketServer) HandleWS(w http.ResponseWriter, r *http.Request) {
+	// Extrair e validar token JWT
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+
+	if token == "" {
+		http.Error(w, "Unauthorized: missing token", http.StatusUnauthorized)
+		return
+	}
+
+	// Validar token JWT
+	claims := &jwt.StandardClaims{}
+	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
+		jwtSecret := os.Getenv("JWT_SECRET")
+		if jwtSecret == "" {
+			jwtSecret = "your-secret-key-change-this"
+		}
+		return []byte(jwtSecret), nil
+	})
+
+	if err != nil || !parsedToken.Valid {
+		ws.logger.Error("invalid token", zap.Error(err))
+		http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// Extrair userID do token
+	userID, err := uuid.FromString(claims.Subject)
+	if err != nil {
+		ws.logger.Error("invalid user ID in token", zap.Error(err))
+		http.Error(w, "Unauthorized: invalid user ID", http.StatusUnauthorized)
+		return
+	}
+
+	// Upgrade para WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		ws.logger.Error("websocket upgrade error", zap.Error(err))
 		return
 	}
 
-	// TODO: Extrair userID do token JWT
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		userID = "anonymous"
+	// Obter username (pode vir do query param ou do banco de dados)
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		username = "User-" + userID.String()[:8]
 	}
 
 	client := &WebSocketConn{
-		userID: userID,
-		conn:   conn,
-		send:   make(chan []byte, 256),
+		userID:   userID,
+		username: username,
+		conn:     conn,
+		send:     make(chan []byte, 256),
+		channels: make(map[string]bool),
 	}
 
 	ws.register <- client
@@ -136,7 +211,7 @@ func (ws *WebSocketServer) readPump(client *WebSocketConn) {
 	})
 
 	for {
-		_, message, err := client.conn.ReadMessage()
+		_, messageBytes, err := client.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				ws.logger.Error("websocket error", zap.Error(err))
@@ -144,13 +219,100 @@ func (ws *WebSocketServer) readPump(client *WebSocketConn) {
 			break
 		}
 
-		// Publicar mensagem no NATS
-		if err := ws.nc.Publish("websocket.messages", message); err != nil {
-			ws.logger.Error("failed to publish to NATS", zap.Error(err))
+		// Parse mensagem WebSocket
+		var wsMsg WebSocketMessage
+		if err := json.Unmarshal(messageBytes, &wsMsg); err != nil {
+			ws.logger.Error("failed to parse message", zap.Error(err))
+			continue
 		}
 
-		// Broadcast para todos os clientes
-		ws.broadcast <- message
+		// Adicionar informações do cliente
+		wsMsg.UserID = client.userID.String()
+		wsMsg.Timestamp = time.Now()
+
+		// Processar baseado no tipo
+		ws.handleMessage(client, &wsMsg)
+	}
+}
+
+// handleMessage processa diferentes tipos de mensagens
+func (ws *WebSocketServer) handleMessage(client *WebSocketConn, msg *WebSocketMessage) {
+	switch msg.Type {
+	case "message":
+		// Mensagem de chat
+		ws.handleChatMessage(client, msg)
+	case "typing":
+		// Indicador de digitação
+		ws.handleTypingMessage(client, msg)
+	case "presence":
+		// Atualização de presença
+		ws.handlePresenceMessage(client, msg)
+	case "subscribe":
+		// Inscrever em canal
+		if msg.ChannelID != "" {
+			client.channels[msg.ChannelID] = true
+			ws.logger.Info("client subscribed to channel",
+				zap.String("userID", client.userID.String()),
+				zap.String("channelID", msg.ChannelID))
+		}
+	case "unsubscribe":
+		// Desinscrever de canal
+		if msg.ChannelID != "" {
+			delete(client.channels, msg.ChannelID)
+			ws.logger.Info("client unsubscribed from channel",
+				zap.String("userID", client.userID.String()),
+				zap.String("channelID", msg.ChannelID))
+		}
+	default:
+		ws.logger.Warn("unknown message type", zap.String("type", msg.Type))
+	}
+}
+
+// handleChatMessage processa mensagens de chat
+func (ws *WebSocketServer) handleChatMessage(client *WebSocketConn, msg *WebSocketMessage) {
+	// Publicar no NATS para persistência
+	natsSubject := "chat.messages." + msg.ChannelID
+	msgBytes, _ := json.Marshal(msg)
+	if err := ws.nc.Publish(natsSubject, msgBytes); err != nil {
+		ws.logger.Error("failed to publish to NATS", zap.Error(err))
+	}
+
+	// Broadcast para clientes inscritos no canal
+	ws.broadcastToChannel(msg.ChannelID, msgBytes)
+}
+
+// handleTypingMessage processa indicadores de digitação
+func (ws *WebSocketServer) handleTypingMessage(client *WebSocketConn, msg *WebSocketMessage) {
+	msgBytes, _ := json.Marshal(msg)
+	ws.broadcastToChannel(msg.ChannelID, msgBytes)
+}
+
+// handlePresenceMessage processa atualizações de presença
+func (ws *WebSocketServer) handlePresenceMessage(client *WebSocketConn, msg *WebSocketMessage) {
+	var presenceData PresenceData
+	if err := json.Unmarshal(msg.Data, &presenceData); err != nil {
+		ws.logger.Error("failed to parse presence data", zap.Error(err))
+		return
+	}
+
+	ws.presenceCache.SetPresence(client.userID, presenceData.Status)
+	
+	// Broadcast para todos os clientes
+	msgBytes, _ := json.Marshal(msg)
+	ws.broadcast <- msgBytes
+}
+
+// broadcastToChannel envia mensagem para todos os clientes de um canal
+func (ws *WebSocketServer) broadcastToChannel(channelID string, message []byte) {
+	for client := range ws.clients {
+		if client.channels[channelID] {
+			select {
+			case client.send <- message:
+			default:
+				// Buffer cheio, desconectar cliente
+				go func(c *WebSocketConn) { ws.unregister <- c }(client)
+			}
+		}
 	}
 }
 

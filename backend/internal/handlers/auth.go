@@ -6,21 +6,27 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/nexus/backend/internal/database"
 )
 
 // AuthHandler gerencia autenticação
 type AuthHandler struct {
 	logger *zap.Logger
 	secret string
+	db     *database.CassandraDB
 }
 
 // NewAuthHandler cria um novo handler de autenticação
-func NewAuthHandler(logger *zap.Logger, secret string) *AuthHandler {
+func NewAuthHandler(logger *zap.Logger, secret string, db *database.CassandraDB) *AuthHandler {
 	return &AuthHandler{
 		logger: logger,
 		secret: secret,
+		db:     db,
 	}
 }
 
@@ -86,7 +92,13 @@ func (ah *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, err := ah.VerifyToken(authHeader)
+		// Remove "Bearer " prefix se existir
+		tokenString := authHeader
+		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			tokenString = authHeader[7:]
+		}
+
+		claims, err := ah.VerifyToken(tokenString)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
@@ -96,6 +108,160 @@ func (ah *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), "claims", claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// LoginRequest representa a requisição de login
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// LoginResponse representa a resposta de login
+type LoginResponse struct {
+	Token string      `json:"token"`
+	User  interface{} `json:"user"`
+}
+
+// RegisterRequest representa a requisição de registro
+type RegisterRequest struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// Login autentica um usuário
+func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Buscar usuário no banco de dados (pode ser por email ou username)
+	user, err := ah.db.GetUserByUsername(req.Username)
+	if err != nil {
+		// Tentar por email
+		user, err = ah.db.GetUserByEmail(req.Username)
+		if err != nil {
+			ah.logger.Error("user not found", zap.String("username", req.Username), zap.Error(err))
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	// Verificar senha
+	passwordHash, ok := user["password_hash"].(string)
+	if !ok {
+		ah.logger.Error("password_hash not found in user")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		ah.logger.Error("invalid password", zap.Error(err))
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Extrair dados do usuário
+	userID, _ := user["user_id"].(uuid.UUID)
+	email, _ := user["email"].(string)
+	username, _ := user["username"].(string)
+	avatarURL, _ := user["avatar_url"].(string)
+
+	token, err := ah.GenerateToken(userID.String(), email, username)
+	if err != nil {
+		http.Error(w, "failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	response := LoginResponse{
+		Token: token,
+		User: map[string]interface{}{
+			"id":       userID.String(),
+			"email":    email,
+			"username": username,
+			"avatar":   avatarURL,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// Register registra um novo usuário
+func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validar campos
+	if req.Email == "" || req.Username == "" || req.Password == "" {
+		http.Error(w, "email, username and password are required", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Username) < 3 {
+		http.Error(w, "username must be at least 3 characters", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Password) < 6 {
+		http.Error(w, "password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+
+	// Verificar se usuário já existe (por email)
+	if _, err := ah.db.GetUserByEmail(req.Email); err == nil {
+		http.Error(w, "email already registered", http.StatusConflict)
+		return
+	}
+
+	// Verificar se usuário já existe (por username)
+	if _, err := ah.db.GetUserByUsername(req.Username); err == nil {
+		http.Error(w, "username already taken", http.StatusConflict)
+		return
+	}
+
+	// Hash da senha
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		ah.logger.Error("failed to hash password", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Gerar UUID para o usuário
+	userID := uuid.Must(uuid.NewV4())
+
+	// Salvar usuário no banco de dados
+	if err := ah.db.CreateUser(userID.String(), req.Email, req.Username, string(passwordHash)); err != nil {
+		ah.logger.Error("failed to create user", zap.Error(err))
+		http.Error(w, "failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	// Gerar token
+	token, err := ah.GenerateToken(userID.String(), req.Email, req.Username)
+	if err != nil {
+		http.Error(w, "failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	response := LoginResponse{
+		Token: token,
+		User: map[string]interface{}{
+			"id":       userID.String(),
+			"email":    req.Email,
+			"username": req.Username,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
 }
 
 // HealthHandler gerencia health checks
@@ -116,46 +282,5 @@ func (hh *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "ok",
 		"time":   time.Now().Unix(),
-	})
-}
-
-// LoginResponse representa a resposta de login
-type LoginResponse struct {
-	Token    string `json:"token"`
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-}
-
-// LoginRequest representa a requisição de login
-type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-// Login autentica um usuário
-func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// TODO: Validar email/password contra banco de dados
-	// Por enquanto, apenas gerar token
-
-	userID := "user-123" // TODO: obter do DB
-	token, err := ah.GenerateToken(userID, req.Email, "username")
-	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(LoginResponse{
-		Token:    token,
-		UserID:   userID,
-		Email:    req.Email,
-		Username: "username",
 	})
 }

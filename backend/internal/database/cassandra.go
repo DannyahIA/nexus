@@ -75,15 +75,19 @@ func (db *CassandraDB) InitializeKeyspace() error {
 			user_id uuid PRIMARY KEY,
 			email text,
 			username text,
+			password_hash text,
 			avatar_url text,
 			created_at timestamp,
 			updated_at timestamp
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_email ON users(email)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_username ON users(username)`,
 		`CREATE TABLE IF NOT EXISTS channels (
 			channel_id uuid PRIMARY KEY,
 			name text,
 			type text,
 			owner_id uuid,
+			description text,
 			created_at timestamp,
 			updated_at timestamp
 		)`,
@@ -183,4 +187,117 @@ func (db *CassandraDB) GetUserPresence(userID string) (map[string]interface{}, e
 // Health verifica a saúde da conexão com Cassandra
 func (db *CassandraDB) Health(ctx context.Context) error {
 	return db.session.Query("SELECT now() FROM system.local").Exec()
+}
+
+// CreateUser insere um novo usuário no Cassandra
+func (db *CassandraDB) CreateUser(userID, email, username, passwordHash string) error {
+	query := `INSERT INTO nexus.users (user_id, email, username, password_hash, created_at, updated_at) 
+	          VALUES (?, ?, ?, ?, ?, ?)`
+	now := time.Now()
+	return db.session.Query(query, userID, email, username, passwordHash, now, now).Exec()
+}
+
+// GetUserByEmail retorna um usuário pelo email (usando índice secundário)
+func (db *CassandraDB) GetUserByEmail(email string) (map[string]interface{}, error) {
+	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE email = ? ALLOW FILTERING`
+	row := make(map[string]interface{})
+	err := db.session.Query(query, email).MapScan(row)
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// GetUserByUsername retorna um usuário pelo username (usando índice secundário)
+func (db *CassandraDB) GetUserByUsername(username string) (map[string]interface{}, error) {
+	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE username = ? ALLOW FILTERING`
+	row := make(map[string]interface{})
+	err := db.session.Query(query, username).MapScan(row)
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// GetUserByID retorna um usuário pelo ID
+func (db *CassandraDB) GetUserByID(userID string) (map[string]interface{}, error) {
+	query := `SELECT user_id, email, username, avatar_url, created_at FROM nexus.users WHERE user_id = ?`
+	row := make(map[string]interface{})
+	err := db.session.Query(query, userID).MapScan(row)
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// CreateChannel insere um novo canal no Cassandra
+func (db *CassandraDB) CreateChannel(channelID, name, channelType, ownerID, description string) error {
+	query := `INSERT INTO nexus.channels (channel_id, name, type, owner_id, description, created_at, updated_at) 
+	          VALUES (?, ?, ?, ?, ?, ?, ?)`
+	now := time.Now()
+	return db.session.Query(query, channelID, name, channelType, ownerID, description, now, now).Exec()
+}
+
+// GetAllChannels retorna todos os canais
+func (db *CassandraDB) GetAllChannels() ([]map[string]interface{}, error) {
+	query := `SELECT channel_id, name, type, owner_id, description, created_at, updated_at FROM nexus.channels`
+	
+	iter := db.session.Query(query).Iter()
+	defer iter.Close()
+
+	var results []map[string]interface{}
+	
+	var channelID, ownerID gocql.UUID
+	var name, channelType, description string
+	var createdAt, updatedAt time.Time
+
+	for iter.Scan(&channelID, &name, &channelType, &ownerID, &description, &createdAt, &updatedAt) {
+		row := map[string]interface{}{
+			"channel_id":  channelID.String(),
+			"name":        name,
+			"type":        channelType,
+			"owner_id":    ownerID.String(),
+			"description": description,
+			"created_at":  createdAt,
+			"updated_at":  updatedAt,
+		}
+		results = append(results, row)
+	}
+
+	if err := iter.Close(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// GetChannelByID retorna um canal específico
+func (db *CassandraDB) GetChannelByID(channelID string) (map[string]interface{}, error) {
+	query := `SELECT channel_id, name, type, owner_id, description, created_at, updated_at FROM nexus.channels WHERE channel_id = ?`
+	
+	var chID, ownerID gocql.UUID
+	var name, channelType, description string
+	var createdAt, updatedAt time.Time
+
+	err := db.session.Query(query, channelID).Scan(&chID, &name, &channelType, &ownerID, &description, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	row := map[string]interface{}{
+		"channel_id":  chID.String(),
+		"name":        name,
+		"type":        channelType,
+		"owner_id":    ownerID.String(),
+		"description": description,
+		"created_at":  createdAt,
+		"updated_at":  updatedAt,
+	}
+
+	return row, nil
+}
+
+// DeleteChannel deleta um canal
+func (db *CassandraDB) DeleteChannel(channelID string) error {
+	query := `DELETE FROM nexus.channels WHERE channel_id = ?`
+	return db.session.Query(query, channelID).Exec()
 }

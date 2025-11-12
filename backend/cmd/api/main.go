@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +15,13 @@ import (
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/handlers"
 )
+
+// enableCORS adiciona headers CORS à resposta
+func enableCORS(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+}
 
 func main() {
 	// Carregar variáveis de ambiente
@@ -56,18 +62,130 @@ func main() {
 		jwtSecret = "your-secret-key-here"
 	}
 
-	authHandler := handlers.NewAuthHandler(logger, jwtSecret)
+	authHandler := handlers.NewAuthHandler(logger, jwtSecret, db)
 	healthHandler := handlers.NewHealthHandler(logger)
+	channelHandler := handlers.NewChannelHandler(logger, db)
+	messageHandler := handlers.NewMessageHandler(logger)
+	taskHandler := handlers.NewTaskHandler(logger)
 
 	// Setup rotas HTTP
-	http.HandleFunc("/health", healthHandler.Health)
-	http.HandleFunc("/login", authHandler.Login)
+	mux := http.NewServeMux()
+	
+	// Rotas públicas
+	mux.HandleFunc("/health", healthHandler.Health)
+	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		authHandler.Login(w, r)
+	})
+	mux.HandleFunc("/api/auth/register", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		authHandler.Register(w, r)
+	})
 
-	// Middleware de autenticação para rotas protegidas
-	http.Handle("/api/", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"message": "protected route"}`)
+	// Rotas de canais (protegidas)
+	mux.Handle("/api/channels", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		
+		switch r.Method {
+		case http.MethodGet:
+			if r.URL.Query().Get("id") != "" {
+				channelHandler.GetChannel(w, r)
+			} else {
+				channelHandler.ListChannels(w, r)
+			}
+		case http.MethodPost:
+			channelHandler.CreateChannel(w, r)
+		case http.MethodDelete:
+			channelHandler.DeleteChannel(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})))
+
+	// Rotas de mensagens
+	mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		
+		channelID := r.URL.Query().Get("channelId")
+		messageID := r.URL.Query().Get("id")
+		
+		switch r.Method {
+		case http.MethodGet:
+			messageHandler.GetMessages(w, r)
+		case http.MethodPost:
+			if channelID == "" {
+				http.Error(w, "channelId required", http.StatusBadRequest)
+				return
+			}
+			messageHandler.SendMessage(w, r)
+		case http.MethodPatch:
+			if messageID == "" {
+				http.Error(w, "message id required", http.StatusBadRequest)
+				return
+			}
+			messageHandler.UpdateMessage(w, r)
+		case http.MethodDelete:
+			if messageID == "" {
+				http.Error(w, "message id required", http.StatusBadRequest)
+				return
+			}
+			messageHandler.DeleteMessage(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Rotas de tarefas
+	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		
+		channelID := r.URL.Query().Get("channelId")
+		taskID := r.URL.Query().Get("id")
+		
+		switch r.Method {
+		case http.MethodGet:
+			if channelID == "" {
+				http.Error(w, "channelId required", http.StatusBadRequest)
+				return
+			}
+			taskHandler.GetTasks(w, r)
+		case http.MethodPost:
+			if channelID == "" {
+				http.Error(w, "channelId required", http.StatusBadRequest)
+				return
+			}
+			taskHandler.CreateTask(w, r)
+		case http.MethodPatch:
+			if taskID == "" {
+				http.Error(w, "task id required", http.StatusBadRequest)
+				return
+			}
+			taskHandler.UpdateTask(w, r)
+		case http.MethodDelete:
+			if taskID == "" {
+				http.Error(w, "task id required", http.StatusBadRequest)
+				return
+			}
+			taskHandler.DeleteTask(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
 	// Iniciar servidor HTTP
 	port := os.Getenv("API_PORT")
@@ -77,7 +195,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      http.DefaultServeMux,
+		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
