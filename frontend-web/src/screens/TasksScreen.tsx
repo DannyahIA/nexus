@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTaskStore, Task } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
 import { api } from '../services/api'
-import { Plus, Trash2, Edit, Menu, LogOut, MessageSquare } from 'lucide-react'
+import { Plus, Trash2, Menu, LogOut, MessageSquare } from 'lucide-react'
 
 export default function TasksScreen() {
   const { channelId } = useParams()
