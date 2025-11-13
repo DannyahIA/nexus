@@ -2,37 +2,42 @@
 FROM golang:1.22-alpine AS builder
 
 # Instalar dependências necessárias
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates tzdata
 
 # Definir diretório de trabalho
 WORKDIR /app
 
-# Copiar go.mod e go.sum primeiro (cache de dependências)
-COPY go.mod go.sum ./
+# Copiar arquivos do módulo Go
+COPY go.mod ./
+COPY go.sum* ./
+
+# Atualizar dependências e resolver go.sum
 RUN go mod download
+RUN go mod tidy
 
 # Copiar todo o código fonte
 COPY . .
 
-# Compilar a aplicação API
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o api ./cmd/api/main.go
+# Verificar novamente as dependências após copiar o código
+RUN go mod tidy
 
-# Stage 2: Runtime
-FROM alpine:latest
+# Compilar a aplicação API com otimizações
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o api ./cmd/api/main.go
 
-# Instalar certificados CA para HTTPS
-RUN apk --no-cache add ca-certificates
+# Stage 2: Runtime - imagem mínima
+FROM gcr.io/distroless/static:nonroot
 
-WORKDIR /root/
+# Copiar o binário compilado
+COPY --from=builder /app/api /api
 
-# Copiar o binário compilado do stage anterior
-COPY --from=builder /app/api .
-
-# Copiar o arquivo .env (opcional, pode ser substituído por env vars no docker-compose)
-COPY --from=builder /app/.env* ./ 
+# Usar usuário não-root por segurança
+USER nonroot:nonroot
 
 # Expor a porta da API
 EXPOSE 8000
 
-# Comando para executar a aplicação
-CMD ["./api"]
+# Executar a aplicação
+ENTRYPOINT ["/api"]

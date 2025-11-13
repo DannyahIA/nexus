@@ -2,37 +2,39 @@
 FROM golang:1.22-alpine AS builder
 
 # Instalar dependências necessárias
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates tzdata
 
 # Definir diretório de trabalho
 WORKDIR /app
 
-# Copiar go.mod e go.sum primeiro (cache de dependências)
-COPY go.mod go.sum ./
+# Copiar arquivos do módulo Go
+COPY go.mod ./
+COPY go.sum* ./
+
+# Atualizar dependências e resolver go.sum
 RUN go mod download
+RUN go mod tidy
 
 # Copiar todo o código fonte
 COPY . .
 
-# Compilar a aplicação WebSocket
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ws ./cmd/ws/main.go
+# Verificar novamente as dependências após copiar o código
+RUN go mod tidy
 
-# Stage 2: Runtime
-FROM alpine:latest
+# Compilar a aplicação WebSocket com otimizações
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o ws ./cmd/ws/main.go
 
-# Instalar certificados CA para HTTPS
-RUN apk --no-cache add ca-certificates
+# Stage 2: Runtime - imagem mínima
+FROM gcr.io/distroless/static:nonroot
 
-WORKDIR /root/
-
-# Copiar o binário compilado do stage anterior
-COPY --from=builder /app/ws .
-
-# Copiar o arquivo .env (opcional)
-COPY --from=builder /app/.env* ./ 
+# Copiar o binário compilado
+COPY --from=builder /app/ws /ws
 
 # Expor a porta do WebSocket
 EXPOSE 8080
 
-# Comando para executar a aplicação
-CMD ["./ws"]
+# Executar a aplicação
+ENTRYPOINT ["/ws"]
