@@ -7,18 +7,21 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/nexus/backend/internal/database"
 	"go.uber.org/zap"
 )
 
 // MessageHandler gerencia operações de mensagens
 type MessageHandler struct {
 	logger *zap.Logger
+	db     *database.CassandraDB
 }
 
 // NewMessageHandler cria um novo handler de mensagens
-func NewMessageHandler(logger *zap.Logger) *MessageHandler {
+func NewMessageHandler(logger *zap.Logger, db *database.CassandraDB) *MessageHandler {
 	return &MessageHandler{
 		logger: logger,
+		db:     db,
 	}
 }
 
@@ -56,45 +59,32 @@ func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// TODO: Buscar mensagens do banco de dados com paginação
-	// Por enquanto, retorna mensagens de exemplo
-	now := time.Now()
-	messages := []MessageResponse{
-		{
-			ID:        uuid.Must(uuid.NewV4()).String(),
-			ChannelID: channelID,
-			UserID:    "user1",
-			Username:  "Alice",
-			Content:   "Olá pessoal! 👋",
-			Timestamp: now.Add(-10 * time.Minute).UnixMilli(),
-		},
-		{
-			ID:        uuid.Must(uuid.NewV4()).String(),
-			ChannelID: channelID,
-			UserID:    "user2",
-			Username:  "Bob",
-			Content:   "Oi Alice! Como vai?",
-			Timestamp: now.Add(-8 * time.Minute).UnixMilli(),
-		},
-		{
-			ID:        uuid.Must(uuid.NewV4()).String(),
-			ChannelID: channelID,
-			UserID:    "user1",
-			Username:  "Alice",
-			Content:   "Tudo ótimo! Vamos começar o projeto?",
-			Timestamp: now.Add(-5 * time.Minute).UnixMilli(),
-		},
-		{
-			ID:        uuid.Must(uuid.NewV4()).String(),
-			ChannelID: channelID,
-			UserID:    "user3",
-			Username:  "Charlie",
-			Content:   "Bora! Já preparei o ambiente 🚀",
-			Timestamp: now.Add(-2 * time.Minute).UnixMilli(),
-		},
+	// Buscar mensagens do banco de dados
+	rows, err := mh.db.GetMessagesByChannel(channelID, limit, nil)
+	if err != nil {
+		mh.logger.Error("failed to get messages", zap.Error(err), zap.String("channelId", channelID))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 
-	// Limitar mensagens
+	messages := make([]MessageResponse, 0)
+	for _, row := range rows {
+		msg := MessageResponse{
+			ID:        row["msg_id"].(string),
+			ChannelID: row["channel_id"].(string),
+			UserID:    row["author_id"].(string),
+			Username:  "User", // TODO: Buscar username do banco
+			Content:   row["content"].(string),
+			Timestamp: row["ts"].(time.Time).UnixMilli(),
+		}
+
+		if editedAt, ok := row["edited_at"].(time.Time); ok {
+			ts := editedAt.UnixMilli()
+			msg.EditedAt = &ts
+		}
+
+		messages = append(messages, msg)
+	}
 	if len(messages) > limit {
 		messages = messages[:limit]
 	}
@@ -127,15 +117,29 @@ func (mh *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Obter usuário do contexto (JWT claims)
-	// TODO: Salvar mensagem no banco de dados
-	// TODO: Publicar no NATS para broadcasting via WebSocket
+	// Obter usuário do contexto (JWT claims)
+	claims, ok := r.Context().Value("claims").(*Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Gerar ID da mensagem
+	messageID := uuid.Must(uuid.NewV4()).String()
+
+	// Salvar mensagem no banco de dados
+	err := mh.db.SaveMessage(channelID, messageID, claims.UserID, req.Content)
+	if err != nil {
+		mh.logger.Error("failed to save message", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	message := MessageResponse{
-		ID:        uuid.Must(uuid.NewV4()).String(),
+		ID:        messageID,
 		ChannelID: channelID,
-		UserID:    "current-user-id",
-		Username:  "Current User",
+		UserID:    claims.UserID,
+		Username:  claims.Username,
 		Content:   req.Content,
 		Timestamp: time.Now().UnixMilli(),
 	}
@@ -159,6 +163,12 @@ func (mh *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	channelID := r.URL.Query().Get("channelId")
+	if channelID == "" {
+		http.Error(w, "channel id required", http.StatusBadRequest)
+		return
+	}
+
 	var req MessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -166,17 +176,23 @@ func (mh *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// TODO: Verificar se o usuário é o autor
-	// TODO: Atualizar no banco de dados
-	// TODO: Publicar atualização via NATS
+
+	// Atualizar no banco de dados
+	err := mh.db.UpdateMessage(channelID, messageID, req.Content)
+	if err != nil {
+		mh.logger.Error("failed to update message", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	editedAt := time.Now().UnixMilli()
 	message := MessageResponse{
 		ID:        messageID,
-		ChannelID: "channel-id",
+		ChannelID: channelID,
 		UserID:    "user-id",
 		Username:  "Username",
 		Content:   req.Content,
-		Timestamp: time.Now().Add(-10 * time.Minute).UnixMilli(),
+		Timestamp: time.Now().UnixMilli(),
 		EditedAt:  &editedAt,
 	}
 
@@ -194,9 +210,21 @@ func (mh *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	channelID := r.URL.Query().Get("channelId")
+	if channelID == "" {
+		http.Error(w, "channel id required", http.StatusBadRequest)
+		return
+	}
+
 	// TODO: Verificar se o usuário é o autor ou admin
-	// TODO: Deletar do banco de dados
-	// TODO: Publicar deleção via NATS
+
+	// Deletar do banco de dados
+	err := mh.db.DeleteMessage(channelID, messageID)
+	if err != nil {
+		mh.logger.Error("failed to delete message", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	mh.logger.Info("message deleted", zap.String("id", messageID))
 

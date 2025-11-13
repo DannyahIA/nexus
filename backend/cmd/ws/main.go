@@ -144,8 +144,15 @@ func (ws *WebSocketServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validar token JWT
-	claims := &jwt.StandardClaims{}
+	// Validar token JWT com Claims customizado
+	type Claims struct {
+		UserID   string `json:"user_id"`
+		Email    string `json:"email"`
+		Username string `json:"username"`
+		jwt.StandardClaims
+	}
+
+	claims := &Claims{}
 	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
 		jwtSecret := os.Getenv("JWT_SECRET")
 		if jwtSecret == "" {
@@ -160,10 +167,16 @@ func (ws *WebSocketServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extrair userID do token
-	userID, err := uuid.FromString(claims.Subject)
+	// Extrair userID do token (agora do campo UserID customizado)
+	if claims.UserID == "" {
+		ws.logger.Error("invalid user ID in token: empty UserID")
+		http.Error(w, "Unauthorized: invalid user ID", http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := uuid.FromString(claims.UserID)
 	if err != nil {
-		ws.logger.Error("invalid user ID in token", zap.Error(err))
+		ws.logger.Error("invalid user ID in token", zap.String("userID", claims.UserID), zap.Error(err))
 		http.Error(w, "Unauthorized: invalid user ID", http.StatusUnauthorized)
 		return
 	}
@@ -175,8 +188,8 @@ func (ws *WebSocketServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obter username (pode vir do query param ou do banco de dados)
-	username := r.URL.Query().Get("username")
+	// Usar username do token
+	username := claims.Username
 	if username == "" {
 		username = "User-" + userID.String()[:8]
 	}

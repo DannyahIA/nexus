@@ -86,6 +86,12 @@ func (ah *AuthHandler) VerifyToken(tokenString string) (*Claims, error) {
 // AuthMiddleware é um middleware para autenticação
 func (ah *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// OPTIONS requests devem passar sem autenticação (para CORS preflight)
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing authorization header", http.StatusUnauthorized)
@@ -112,6 +118,7 @@ func (ah *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 
 // LoginRequest representa a requisição de login
 type LoginRequest struct {
+	Email    string `json:"email"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
@@ -137,13 +144,24 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determinar se está usando email ou username
+	identifier := req.Email
+	if identifier == "" {
+		identifier = req.Username
+	}
+
+	if identifier == "" {
+		http.Error(w, "email or username required", http.StatusBadRequest)
+		return
+	}
+
 	// Buscar usuário no banco de dados (pode ser por email ou username)
-	user, err := ah.db.GetUserByUsername(req.Username)
+	user, err := ah.db.GetUserByUsername(identifier)
 	if err != nil {
 		// Tentar por email
-		user, err = ah.db.GetUserByEmail(req.Username)
+		user, err = ah.db.GetUserByEmail(identifier)
 		if err != nil {
-			ah.logger.Error("user not found", zap.String("username", req.Username), zap.Error(err))
+			ah.logger.Error("user not found", zap.String("identifier", identifier), zap.Error(err))
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}

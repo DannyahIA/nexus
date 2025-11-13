@@ -23,6 +23,21 @@ func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 }
 
+// corsMiddleware adiciona headers CORS a todas as requisições
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+
+		// Handle preflight
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	// Carregar variáveis de ambiente
 	if err := godotenv.Load(); err != nil {
@@ -65,8 +80,8 @@ func main() {
 	authHandler := handlers.NewAuthHandler(logger, jwtSecret, db)
 	healthHandler := handlers.NewHealthHandler(logger)
 	channelHandler := handlers.NewChannelHandler(logger, db)
-	messageHandler := handlers.NewMessageHandler(logger)
-	taskHandler := handlers.NewTaskHandler(logger)
+	messageHandler := handlers.NewMessageHandler(logger, db)
+	taskHandler := handlers.NewTaskHandler(logger, db)
 
 	// Setup rotas HTTP
 	mux := http.NewServeMux()
@@ -111,8 +126,8 @@ func main() {
 		}
 	})))
 
-	// Rotas de mensagens
-	mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
+	// Rotas de mensagens (protegidas)
+	mux.Handle("/api/messages", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		enableCORS(w)
 		if r.Method == http.MethodOptions {
 			return
@@ -145,10 +160,10 @@ func main() {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	})))
 
-	// Rotas de tarefas
-	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
+	// Rotas de tarefas (protegidas)
+	mux.Handle("/api/tasks", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		enableCORS(w)
 		if r.Method == http.MethodOptions {
 			return
@@ -185,7 +200,7 @@ func main() {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	})))
 
 	// Iniciar servidor HTTP
 	port := os.Getenv("API_PORT")
@@ -195,7 +210,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      corsMiddleware(mux), // Aplicar CORS middleware global
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}

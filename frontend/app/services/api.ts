@@ -17,7 +17,7 @@ export class ApiClient {
     this.instance.interceptors.request.use((config) => {
       const token = appState$.auth.token.get();
       if (token) {
-        config.headers.Authorization = token;
+        config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
     });
@@ -37,46 +37,61 @@ export class ApiClient {
 
   // Autenticação
   async login(email: string, password: string) {
-    const response = await this.instance.post('/login', { email, password });
+    const response = await this.instance.post('/api/auth/login', { email, password });
     return response.data;
   }
 
   async signup(email: string, username: string, password: string) {
-    const response = await this.instance.post('/signup', { email, username, password });
+    const response = await this.instance.post('/api/auth/register', { email, username, password });
     return response.data;
   }
 
   // Mensagens
   async getMessages(channelID: string, limit: number = 50) {
-    const response = await this.instance.get(`/api/messages/${channelID}`, {
-      params: { limit },
+    const response = await this.instance.get('/api/messages', {
+      params: { channelId: channelID, limit },
     });
     return response.data;
   }
 
   async sendMessage(channelID: string, content: string) {
-    const response = await this.instance.post(`/api/messages/${channelID}`, {
+    const response = await this.instance.post('/api/messages', {
       content,
+    }, {
+      params: { channelId: channelID },
     });
     return response.data;
   }
 
   // Tarefas
   async getTasks(channelID: string) {
-    const response = await this.instance.get(`/api/tasks/${channelID}`);
+    const response = await this.instance.get('/api/tasks', {
+      params: { channelId: channelID },
+    });
     return response.data;
   }
 
   async createTask(channelID: string, title: string, status: string = 'todo') {
-    const response = await this.instance.post(`/api/tasks/${channelID}`, {
+    const response = await this.instance.post('/api/tasks', {
       title,
       status,
+    }, {
+      params: { channelId: channelID },
     });
     return response.data;
   }
 
   async updateTask(channelID: string, taskID: string, updates: any) {
-    const response = await this.instance.put(`/api/tasks/${channelID}/${taskID}`, updates);
+    const response = await this.instance.patch('/api/tasks', updates, {
+      params: { channelId: channelID, id: taskID, position: updates.position || 0 },
+    });
+    return response.data;
+  }
+
+  async deleteTask(channelID: string, taskID: string, position: number) {
+    const response = await this.instance.delete('/api/tasks', {
+      params: { channelId: channelID, id: taskID, position },
+    });
     return response.data;
   }
 

@@ -3,21 +3,25 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/nexus/backend/internal/database"
 	"go.uber.org/zap"
 )
 
 // TaskHandler gerencia operações de tarefas (Kanban)
 type TaskHandler struct {
 	logger *zap.Logger
+	db     *database.CassandraDB
 }
 
 // NewTaskHandler cria um novo handler de tarefas
-func NewTaskHandler(logger *zap.Logger) *TaskHandler {
+func NewTaskHandler(logger *zap.Logger, db *database.CassandraDB) *TaskHandler {
 	return &TaskHandler{
 		logger: logger,
+		db:     db,
 	}
 }
 
@@ -51,60 +55,30 @@ func (th *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Buscar tarefas do banco de dados
-	// Por enquanto, retorna tarefas de exemplo
-	now := time.Now()
-	tasks := []TaskResponse{
-		{
-			ID:          uuid.Must(uuid.NewV4()).String(),
-			ChannelID:   channelID,
-			Title:       "Implementar autenticação",
-			Description: "Adicionar JWT e registro de usuários",
-			Status:      "done",
-			Priority:    "high",
-			CreatedAt:   now.Add(-48 * time.Hour).UnixMilli(),
-			UpdatedAt:   now.Add(-24 * time.Hour).UnixMilli(),
-		},
-		{
-			ID:          uuid.Must(uuid.NewV4()).String(),
-			ChannelID:   channelID,
-			Title:       "Criar API de mensagens",
-			Description: "Endpoints para CRUD de mensagens",
-			Status:      "in-progress",
-			Priority:    "high",
-			CreatedAt:   now.Add(-24 * time.Hour).UnixMilli(),
-			UpdatedAt:   now.Add(-2 * time.Hour).UnixMilli(),
-		},
-		{
-			ID:          uuid.Must(uuid.NewV4()).String(),
-			ChannelID:   channelID,
-			Title:       "Configurar CI/CD",
-			Description: "GitHub Actions para deploy automático",
-			Status:      "todo",
-			Priority:    "medium",
-			CreatedAt:   now.Add(-12 * time.Hour).UnixMilli(),
-			UpdatedAt:   now.Add(-12 * time.Hour).UnixMilli(),
-		},
-		{
-			ID:          uuid.Must(uuid.NewV4()).String(),
-			ChannelID:   channelID,
-			Title:       "Testes unitários",
-			Description: "Adicionar testes para todos os handlers",
-			Status:      "todo",
-			Priority:    "medium",
-			CreatedAt:   now.Add(-6 * time.Hour).UnixMilli(),
-			UpdatedAt:   now.Add(-6 * time.Hour).UnixMilli(),
-		},
-		{
-			ID:          uuid.Must(uuid.NewV4()).String(),
-			ChannelID:   channelID,
-			Title:       "Documentação API",
-			Description: "Criar documentação Swagger/OpenAPI",
-			Status:      "todo",
-			Priority:    "low",
-			CreatedAt:   now.Add(-3 * time.Hour).UnixMilli(),
-			UpdatedAt:   now.Add(-3 * time.Hour).UnixMilli(),
-		},
+	// Buscar tarefas do banco de dados
+	rows, err := th.db.GetTasksByChannel(channelID)
+	if err != nil {
+		th.logger.Error("failed to get tasks", zap.Error(err), zap.String("channelId", channelID))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	tasks := make([]TaskResponse, 0)
+	for _, row := range rows {
+		task := TaskResponse{
+			ID:        row["task_id"].(string),
+			ChannelID: row["channel_id"].(string),
+			Title:     row["title"].(string),
+			Status:    row["status"].(string),
+			CreatedAt: row["created_at"].(time.Time).UnixMilli(),
+			UpdatedAt: row["updated_at"].(time.Time).UnixMilli(),
+		}
+
+		if assignee, ok := row["assignee"].(string); ok {
+			task.Assignee = &assignee
+		}
+
+		tasks = append(tasks, task)
 	}
 
 	th.logger.Info("tasks fetched",
@@ -143,10 +117,42 @@ func (th *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		req.Priority = "medium"
 	}
 
-	// TODO: Salvar no banco de dados
+	// Gerar UUID para nova tarefa
+	taskID := uuid.Must(uuid.NewV4()).String()
+
+	// Calcular próxima posição (última posição + 1)
+	existingTasks, err := th.db.GetTasksByChannel(channelID)
+	if err != nil {
+		th.logger.Error("failed to get tasks for position calculation", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	position := 0
+	if len(existingTasks) > 0 {
+		// Encontrar a maior posição
+		for _, task := range existingTasks {
+			if pos, ok := task["position"].(int); ok && pos >= position {
+				position = pos + 1
+			}
+		}
+	}
+
+	// Salvar no banco de dados
+	assigneeID := ""
+	if req.AssigneeID != nil {
+		assigneeID = *req.AssigneeID
+	}
+
+	if err := th.db.CreateTask(channelID, taskID, req.Title, req.Status, assigneeID, position); err != nil {
+		th.logger.Error("failed to create task", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	now := time.Now().UnixMilli()
 	task := TaskResponse{
-		ID:          uuid.Must(uuid.NewV4()).String(),
+		ID:          taskID,
 		ChannelID:   channelID,
 		Title:       req.Title,
 		Description: req.Description,
@@ -176,24 +182,45 @@ func (th *TaskHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	channelID := r.URL.Query().Get("channelId")
+	if channelID == "" {
+		http.Error(w, "channel id required", http.StatusBadRequest)
+		return
+	}
+
+	positionStr := r.URL.Query().Get("position")
+	if positionStr == "" {
+		http.Error(w, "position required", http.StatusBadRequest)
+		return
+	}
+
+	position, err := strconv.Atoi(positionStr)
+	if err != nil {
+		http.Error(w, "invalid position", http.StatusBadRequest)
+		return
+	}
+
 	var req TaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Buscar tarefa existente e atualizar no banco de dados
-	// TODO: Publicar atualização via NATS
+	// Atualizar no banco de dados
+	if err := th.db.UpdateTask(channelID, taskID, req.Title, req.Status, position); err != nil {
+		th.logger.Error("failed to update task", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	task := TaskResponse{
 		ID:          taskID,
-		ChannelID:   "channel-id",
+		ChannelID:   channelID,
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      req.Status,
 		Priority:    req.Priority,
 		Assignee:    req.AssigneeID,
-		CreatedAt:   time.Now().Add(-24 * time.Hour).UnixMilli(),
 		UpdatedAt:   time.Now().UnixMilli(),
 	}
 
@@ -211,8 +238,30 @@ func (th *TaskHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Verificar permissões e deletar do banco de dados
-	// TODO: Publicar deleção via NATS
+	channelID := r.URL.Query().Get("channelId")
+	if channelID == "" {
+		http.Error(w, "channel id required", http.StatusBadRequest)
+		return
+	}
+
+	positionStr := r.URL.Query().Get("position")
+	if positionStr == "" {
+		http.Error(w, "position required", http.StatusBadRequest)
+		return
+	}
+
+	position, err := strconv.Atoi(positionStr)
+	if err != nil {
+		http.Error(w, "invalid position", http.StatusBadRequest)
+		return
+	}
+
+	// Deletar do banco de dados
+	if err := th.db.DeleteTask(channelID, taskID, position); err != nil {
+		th.logger.Error("failed to delete task", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	th.logger.Info("task deleted", zap.String("id", taskID))
 
