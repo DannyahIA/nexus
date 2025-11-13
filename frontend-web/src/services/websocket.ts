@@ -168,13 +168,27 @@ export class WebSocketService {
     })
   }
 
+  // Função para gerar UUID compatível com todos os browsers
+  private generateUUID(): string {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID()
+    }
+    
+    // Fallback para browsers sem crypto.randomUUID
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0
+      const v = c === 'x' ? r : (r & 0x3 | 0x8)
+      return v.toString(16)
+    })
+  }
+
   // Enviar mensagem de chat
   sendMessage(channelId: string, content: string) {
     const user = useAuthStore.getState().user
     if (!user) return
 
     const messageData: MessageData = {
-      id: crypto.randomUUID(),
+      id: this.generateUUID(),
       content,
       authorId: user.id,
       username: user.username,
