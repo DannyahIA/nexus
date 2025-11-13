@@ -42,7 +42,7 @@ type MessageResponse struct {
 	EditedAt  *int64 `json:"editedAt,omitempty"`
 }
 
-// GetMessages retorna mensagens de um canal
+// GetMessages retorna mensagens de um canal com paginação
 func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("channelId")
 	if channelID == "" {
@@ -54,26 +54,51 @@ func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50
 	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
 		}
 	}
 
+	// Parâmetro "before" para paginação (timestamp em milissegundos)
+	var beforeTime *time.Time
+	beforeStr := r.URL.Query().Get("before")
+	if beforeStr != "" {
+		if beforeMs, err := strconv.ParseInt(beforeStr, 10, 64); err == nil {
+			t := time.UnixMilli(beforeMs)
+			beforeTime = &t
+		}
+	}
+
 	// Buscar mensagens do banco de dados
-	rows, err := mh.db.GetMessagesByChannel(channelID, limit, nil)
+	rows, err := mh.db.GetMessagesByChannel(channelID, limit+1, beforeTime) // +1 para verificar hasMore
 	if err != nil {
 		mh.logger.Error("failed to get messages", zap.Error(err), zap.String("channelId", channelID))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	// Verificar se há mais mensagens
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
 	messages := make([]MessageResponse, 0)
 	for _, row := range rows {
+		// Buscar username do usuário
+		username := "User"
+		authorID := row["author_id"].(string)
+		if userRow, err := mh.db.GetUserByID(authorID); err == nil {
+			if uname, ok := userRow["username"].(string); ok {
+				username = uname
+			}
+		}
+
 		msg := MessageResponse{
 			ID:        row["msg_id"].(string),
 			ChannelID: row["channel_id"].(string),
-			UserID:    row["author_id"].(string),
-			Username:  "User", // TODO: Buscar username do banco
+			UserID:    authorID,
+			Username:  username,
 			Content:   row["content"].(string),
 			Timestamp: row["ts"].(time.Time).UnixMilli(),
 		}
@@ -85,17 +110,20 @@ func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 
 		messages = append(messages, msg)
 	}
-	if len(messages) > limit {
-		messages = messages[:limit]
+
+	response := map[string]interface{}{
+		"messages": messages,
+		"hasMore":  hasMore,
 	}
 
 	mh.logger.Info("messages fetched",
 		zap.String("channelId", channelID),
 		zap.Int("count", len(messages)),
+		zap.Bool("hasMore", hasMore),
 	)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(messages)
+	json.NewEncoder(w).Encode(response)
 }
 
 // SendMessage envia uma nova mensagem
