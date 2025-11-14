@@ -280,7 +280,251 @@ MIT © 2025 Nexus
 - Pion - WebRTC SDK
 - Cassandra - distributed database
 
-## 📞 Support
+## �️ Roadmap
+
+### ✅ Implemented Features
+
+#### Core Infrastructure
+- [x] Go microservices architecture with REST API
+- [x] WebSocket server for real-time communication
+- [x] Cassandra database integration with time-series partitioning
+- [x] NATS JetStream for event streaming
+- [x] Redis caching layer
+- [x] Docker containerization with docker-compose
+- [x] Health check endpoints
+- [x] Structured logging with Zap
+
+#### Authentication & Users
+- [x] JWT authentication with refresh tokens
+- [x] User registration and login
+- [x] Password hashing with bcrypt
+- [x] User profile management
+- [x] User presence tracking (online/offline)
+
+#### Messaging
+- [x] Real-time messaging via WebSocket
+- [x] Message persistence in Cassandra
+- [x] Message history with pagination
+- [x] Message editing and deletion
+- [x] Message grouping by user and time
+- [x] Date separators in chat
+- [x] Message context menu (edit, delete, reply)
+- [x] Infinite scroll with load more
+
+#### Servers & Channels
+- [x] Server (group) creation and management
+- [x] Text channels
+- [x] Channel creation, editing, and deletion
+- [x] Server ownership and permissions
+- [x] Multiple channels per server
+- [x] Channel context menu
+
+#### UI/UX
+- [x] Discord-inspired UI design
+- [x] Responsive layout for desktop and mobile
+- [x] Dark theme
+- [x] Message hover actions (with Shift key)
+- [x] Avatar placeholders with initials
+- [x] Loading states and spinners
+- [x] Error handling and user feedback
+
+#### Frontend
+- [x] Web frontend with React + Vite
+- [x] Desktop app with Electron
+- [x] TypeScript throughout
+- [x] State management with Zustand
+- [x] API client with Axios
+- [x] WebSocket client integration
+
+### 🚧 In Progress
+
+#### Voice & Video
+- [ ] Voice channels
+- [ ] Voice calling (1-on-1)
+- [ ] Group voice calls
+- [ ] Video calling (1-on-1)
+- [ ] Group video calls
+- [ ] Screen sharing
+- [ ] WebRTC SFU implementation with Pion
+- [ ] TURN server integration (coturn)
+- [ ] Audio/video quality controls
+- [ ] Push-to-talk
+- [ ] Voice activity detection
+- [ ] Noise suppression
+- [ ] Echo cancellation
+
+#### Task Management (Kanban)
+- [ ] Task board visualization
+- [ ] Drag-and-drop task reordering
+- [ ] Task creation, editing, deletion
+- [ ] Task status (todo, in progress, done)
+- [ ] Task assignments
+- [ ] Task dependencies
+  - [ ] Blocking tasks
+  - [ ] Blocked by relationships
+  - [ ] Parent-child task hierarchy
+  - [ ] Task chains
+- [ ] Task priorities
+- [ ] Task labels/tags
+- [ ] Task due dates
+- [ ] Task comments
+- [ ] Task mentions in chat
+- [ ] Link tasks to messages
+- [ ] Task notifications
+- [ ] Task search and filters
+- [ ] Task templates
+- [ ] Sprint/milestone planning
+
+#### Friends & Direct Messages
+- [ ] Friend request system
+- [ ] Friend list management
+- [ ] Accept/decline friend requests
+- [ ] Block/unblock users
+- [ ] Direct message channels (DMs)
+- [ ] Group DMs
+- [ ] Friend online status
+- [ ] Friend activity status
+
+#### Rich Messaging Features
+- [ ] Message replies/threads
+- [ ] Message reactions/emojis
+- [ ] File attachments
+  - [ ] Image upload and preview
+  - [ ] Video upload and preview
+  - [ ] Document sharing
+  - [ ] File size limits
+  - [ ] Thumbnail generation
+- [ ] Link previews
+- [ ] Code blocks with syntax highlighting
+- [ ] Markdown support
+- [ ] @mentions (users)
+- [ ] #channel mentions
+- [ ] @here and @everyone mentions
+- [ ] Message pinning
+- [ ] Message search
+- [ ] Message forwarding
+- [ ] Typing indicators
+
+#### Notifications
+- [ ] Push notifications (mobile)
+- [ ] Desktop notifications
+- [ ] In-app notification center
+- [ ] Notification preferences per server
+- [ ] Notification muting
+- [ ] Unread message badges
+- [ ] Notification sounds
+- [ ] Do Not Disturb mode
+
+#### Server Roles & Permissions
+- [ ] Role creation and management
+- [ ] Role hierarchy
+- [ ] Permission system
+  - [ ] Channel-specific permissions
+  - [ ] Server-wide permissions
+  - [ ] Role-based access control
+- [ ] Default roles (Admin, Moderator, Member)
+- [ ] Custom role colors
+- [ ] Role mentions
+- [ ] Permission presets
+- [ ] Audit log for permissions
+
+#### Server Management
+- [ ] Server settings
+- [ ] Server invites
+  - [ ] Invite code generation
+  - [ ] Invite expiration
+  - [ ] Invite link sharing
+  - [ ] Invite usage tracking
+- [ ] Server discovery
+- [ ] Server categories
+- [ ] Server banners/icons
+- [ ] Server member management
+- [ ] Server bans and kicks
+- [ ] Server moderation tools
+- [ ] Server templates
+
+#### Advanced Features
+- [ ] Voice channel text chat
+- [ ] Announcement channels
+- [ ] Forum channels
+- [ ] Stage channels (voice events)
+- [ ] Server boost system
+- [ ] Custom emojis
+- [ ] Stickers
+- [ ] Bot support and API
+- [ ] Webhooks
+- [ ] Integration with third-party services
+- [ ] OAuth2 for third-party apps
+
+#### Performance & Optimization
+- [ ] Message virtualization for long chats
+- [ ] Lazy loading of images
+- [ ] Service worker for offline support
+- [ ] Database query optimization
+- [ ] CDN for static assets
+- [ ] Horizontal scaling support
+- [ ] Load balancing
+- [ ] Rate limiting
+
+#### Mobile Enhancements
+- [ ] Native mobile UI components
+- [ ] Gesture controls
+- [ ] Haptic feedback
+- [ ] Background audio for voice
+- [ ] Picture-in-Picture for video
+- [ ] Mobile notifications
+- [ ] Deep linking
+
+#### Analytics & Monitoring
+- [ ] User analytics
+- [ ] Server statistics
+- [ ] Message metrics
+- [ ] Performance monitoring
+- [ ] Error tracking
+- [ ] Prometheus metrics
+- [ ] Grafana dashboards
+- [ ] Distributed tracing with Jaeger
+
+#### Security
+- [ ] End-to-end encryption (optional)
+- [ ] Two-factor authentication (2FA)
+- [ ] Account recovery
+- [ ] Password strength requirements
+- [ ] Session management
+- [ ] IP whitelisting
+- [ ] Rate limiting per user
+- [ ] CAPTCHA for registration
+- [ ] Security audit logs
+
+#### Developer Experience
+- [ ] API documentation with Swagger
+- [ ] GraphQL API
+- [ ] SDK for third-party developers
+- [ ] CLI tools
+- [ ] Development mode with hot reload
+- [ ] Testing suite (unit, integration, e2e)
+- [ ] CI/CD pipeline
+- [ ] Automated deployment
+
+### 📅 Future Considerations
+
+- [ ] i18n (internationalization)
+- [ ] Accessibility (ARIA, screen readers)
+- [ ] Themes and customization
+- [ ] Plugin system
+- [ ] AI-powered features
+  - [ ] Message summarization
+  - [ ] Smart task suggestions
+  - [ ] Auto-moderation
+- [ ] Calendar integration
+- [ ] Email notifications
+- [ ] Mobile apps for iOS and Android
+- [ ] Progressive Web App (PWA)
+- [ ] Self-hosted option
+
+---
+
+## �📞 Support
 
 - 📧 Email: contato@eclipsiasoftware.com
 - 🐙 GitHub Issues: [Issues](https://github.com/DannyahIA/nexus/issues)
@@ -289,4 +533,4 @@ MIT © 2025 Nexus
 
 **Made with ❤️ by [Dannyah](https://github.com/DannyahIA)**
 
-Last updated: November 5, 2025
+Last updated: November 14, 2025
