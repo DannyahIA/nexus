@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Hash, Volume2, Lock, Plus, ChevronDown } from 'lucide-react'
+import { Hash, Volume2, Lock, ChevronDown } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import ChannelContextMenu from './ChannelContextMenu'
 
@@ -17,7 +17,6 @@ interface ChannelListProps {
 
 export default function ChannelList({ serverId, serverName, channels, activeChannelId }: ChannelListProps) {
   const navigate = useNavigate()
-  const [showCreateChannel, setShowCreateChannel] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
     channel: any
     position: { x: number; y: number }
@@ -84,15 +83,6 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
               <h3 className="text-xs font-semibold text-dark-400 uppercase">
                 Canais de Texto
               </h3>
-              {serverId && (
-                <button
-                  onClick={() => setShowCreateChannel(true)}
-                  className="p-0.5 hover:bg-dark-700 rounded text-dark-400 hover:text-white"
-                  title="Criar Canal"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              )}
             </div>
             {textChannels.map((channel) => (
               <button
@@ -119,15 +109,6 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
               <h3 className="text-xs font-semibold text-dark-400 uppercase">
                 Canais de Voz
               </h3>
-              {serverId && (
-                <button
-                  onClick={() => setShowCreateChannel(true)}
-                  className="p-0.5 hover:bg-dark-700 rounded text-dark-400 hover:text-white"
-                  title="Criar Canal de Voz"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              )}
             </div>
             {voiceChannels.map((channel) => (
               <button
@@ -151,12 +132,6 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
         {channels.length === 0 && serverId && (
           <div className="flex flex-col items-center justify-center h-full text-dark-400 p-4">
             <p className="text-sm text-center mb-2">Nenhum canal ainda</p>
-            <button
-              onClick={() => setShowCreateChannel(true)}
-              className="px-3 py-1.5 bg-primary-600 hover:bg-primary-700 rounded text-white text-sm"
-            >
-              Criar Canal
-            </button>
           </div>
         )}
       </div>

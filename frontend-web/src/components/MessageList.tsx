@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
-import { Loader2, MoreVertical, Trash2, Edit, Reply } from 'lucide-react'
+import { Loader2, Trash2, Edit, Reply } from 'lucide-react'
 import MessageContextMenu from './MessageContextMenu'
 
 interface Message {
@@ -342,38 +342,6 @@ export default function MessageList({
 
   // Renderizar apenas primeiras 100 mensagens se tiver muitas (otimização inicial)
   const visibleMessages = messages.length > 100 ? messages.slice(-100) : messages
-
-  // Verificar se mensagem deve ser agrupada (Discord style)
-  const shouldGroupMessage = (currentMsg: Message, previousMsg: Message | undefined): boolean => {
-    if (!previousMsg) return false
-    
-    // Mesmo autor
-    if (currentMsg.userId !== previousMsg.userId) return false
-    
-    // Diferença de tempo menor que 5 minutos (300000ms)
-    const timeDiff = currentMsg.timestamp - previousMsg.timestamp
-    if (timeDiff > 300000) return false
-    
-    return true
-  }
-
-  // Formatar timestamp
-  const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
-    
-    if (isToday) {
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    } else {
-      return date.toLocaleDateString('pt-BR', { 
-        day: '2-digit', 
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }
-  }
 
   return (
     <div

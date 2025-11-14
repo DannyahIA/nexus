@@ -17,7 +17,7 @@ interface ChannelContextMenuProps {
 
 export default function ChannelContextMenu({
   channel,
-  serverId,
+  serverId: _serverId,
   position,
   onClose,
   onUpdate,

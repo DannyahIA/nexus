@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { FixedSizeList as List } from 'react-window'
+import { useEffect, useRef, useCallback } from 'react'
+import { List, ListImperativeAPI } from 'react-window'
 import AutoSizer from 'react-virtualized-auto-sizer'
 import { Loader2 } from 'lucide-react'
 
@@ -21,17 +21,13 @@ interface VirtualizedMessageListProps {
   onLoadMore: () => void
 }
 
-// Cache de alturas das mensagens para performance
-const rowHeights = new Map<string, number>()
-
 export default function VirtualizedMessageList({
   messages,
   loading,
   hasMore,
   onLoadMore,
 }: VirtualizedMessageListProps) {
-  const listRef = useRef<List>(null)
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+  const listRef = useRef<ListImperativeAPI>(null)
   const prevMessagesLengthRef = useRef(0)
   const isLoadingMoreRef = useRef(false)
   const rowHeightCache = useRef(new Map<number, number>())
@@ -64,7 +60,6 @@ export default function VirtualizedMessageList({
   // Resetar cache quando mensagens mudarem
   useEffect(() => {
     rowHeightCache.current.clear()
-    listRef.current?.resetAfterIndex(0)
   }, [messages.length])
 
   // Auto-scroll para o final quando novas mensagens chegam
@@ -78,41 +73,18 @@ export default function VirtualizedMessageList({
       // Primeira carga: scrollar para o final
       setTimeout(() => {
         if (listRef.current) {
-          listRef.current.scrollToItem(messages.length - 1, 'end')
+          listRef.current.scrollToRow({ index: messages.length - 1, align: 'end' })
         }
       }, 100)
-    } else if (isNewMessage && shouldAutoScroll && !isLoadingMoreRef.current) {
+    } else if (isNewMessage && !isLoadingMoreRef.current) {
       // Nova mensagem: scrollar para o final
       setTimeout(() => {
         if (listRef.current) {
-          listRef.current.scrollToItem(messages.length - 1, 'end')
+          listRef.current.scrollToRow({ index: messages.length - 1, align: 'end' })
         }
       }, 50)
     }
-  }, [messages.length, shouldAutoScroll])
-
-  // Detectar scroll e carregar mais mensagens
-  const handleScroll = useCallback(
-    ({ scrollOffset, scrollUpdateWasRequested }: any) => {
-      // Não fazer nada se o scroll foi programático
-      if (scrollUpdateWasRequested) return
-
-      // Carregar mais quando estiver nos primeiros 20% do scroll
-      const loadThreshold = 0.2
-      const shouldLoad = scrollOffset < loadThreshold * 1000 // Aproximadamente 200px
-
-      if (shouldLoad && hasMore && !loading && !isLoadingMoreRef.current) {
-        isLoadingMoreRef.current = true
-        console.log('🔝 Virtualized: Carregando mais mensagens')
-        onLoadMore()
-        
-        setTimeout(() => {
-          isLoadingMoreRef.current = false
-        }, 1000)
-      }
-    },
-    [hasMore, loading, onLoadMore]
-  )
+  }, [messages.length])
 
   // Formatar timestamp
   const formatTime = (timestamp: number) => {
@@ -141,14 +113,22 @@ export default function VirtualizedMessageList({
   }
 
   // Renderizar item da lista
-  const MessageRow = ({ index, style }: { index: number; style: React.CSSProperties }) => {
+  const MessageRow = ({ index, style, ariaAttributes }: { 
+    index: number; 
+    style: React.CSSProperties;
+    ariaAttributes: {
+      'aria-posinset': number;
+      'aria-setsize': number;
+      role: 'listitem';
+    };
+  }) => {
     const message = messages[index]
-    if (!message) return null
+    if (!message) return <div style={style} {...ariaAttributes} />
 
     const showDateSeparator = shouldShowDateSeparator(index)
 
     return (
-      <div style={style}>
+      <div style={style} {...ariaAttributes}>
         {/* Separador de data */}
         {showDateSeparator && (
           <div className="flex items-center justify-center my-4">
@@ -221,17 +201,24 @@ export default function VirtualizedMessageList({
       {/* Lista virtualizada */}
       <AutoSizer>
         {({ height, width }: { height: number; width: number }) => (
-          <List
-            ref={listRef}
-            height={height - 80} // Subtrair altura do header
-            width={width}
-            itemCount={messages.length}
-            itemSize={estimateRowHeight}
-            onScroll={handleScroll}
-            overscanCount={5} // Renderizar 5 itens extras acima e abaixo
-          >
-            {MessageRow}
-          </List>
+          <List<{}>
+            listRef={listRef}
+            defaultHeight={height - 80}
+            rowCount={messages.length}
+            rowHeight={estimateRowHeight}
+            rowProps={{} as any}
+            onRowsRendered={({ startIndex }: any) => {
+              if (startIndex === 0 && hasMore && !loading && !isLoadingMoreRef.current) {
+                isLoadingMoreRef.current = true
+                onLoadMore()
+                setTimeout(() => {
+                  isLoadingMoreRef.current = false
+                }, 1000)
+              }
+            }}
+            rowComponent={MessageRow}
+            style={{ width }}
+          />
         )}
       </AutoSizer>
     </div>
