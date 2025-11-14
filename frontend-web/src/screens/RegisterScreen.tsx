@@ -208,7 +208,7 @@ export default function RegisterScreen() {
         </div>
 
         <div className="mt-6 text-center text-dark-500 text-sm">
-          <p>Made with ❤️ by Nexus Team</p>
+          <p>Made with ❤️ by EclipsIA Team</p>
         </div>
       </div>
     </div>
