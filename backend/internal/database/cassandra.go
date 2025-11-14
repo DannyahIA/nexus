@@ -314,13 +314,17 @@ func (db *CassandraDB) SaveMessage(channelID, messageID, authorID, content strin
 	// Converter string UUID para gocql.UUID
 	channelUUID, err := gocql.ParseUUID(channelID)
 	if err != nil {
+		log.Printf("ERROR: Failed to parse channelID: %s, error: %v", channelID, err)
 		return err
 	}
 
 	authorUUID, err := gocql.ParseUUID(authorID)
 	if err != nil {
+		log.Printf("ERROR: Failed to parse authorID: %s, error: %v", authorID, err)
 		return err
 	}
+
+	log.Printf("DEBUG SaveMessage: channelID=%s, authorID=%s, authorUUID=%s", channelID, authorID, authorUUID.String())
 
 	// Gerar TimeUUID para a mensagem
 	msgTimeUUID := gocql.TimeUUID()
