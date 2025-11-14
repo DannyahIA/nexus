@@ -21,6 +21,7 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    console.log('🌐 API Request:', config.method?.toUpperCase(), config.url, 'Full URL:', `${config.baseURL || ''}${config.url || ''}`)
     return config
   },
   (error) => {
@@ -58,6 +59,9 @@ export const api = {
   createChannel: (data: { name: string; description?: string; type: string }) =>
     apiClient.post('/api/channels', data),
 
+  updateChannel: (channelId: string, data: { name: string; description?: string; type: string }) =>
+    apiClient.patch(`/api/channels?id=${channelId}`, data),
+
   deleteChannel: (channelId: string) =>
     apiClient.delete(`/api/channels?id=${channelId}`),
 
@@ -72,11 +76,11 @@ export const api = {
   sendMessage: (channelId: string, content: string) =>
     apiClient.post(`/api/messages?channelId=${channelId}`, { content }),
 
-  updateMessage: (messageId: string, content: string) =>
-    apiClient.patch(`/api/messages?id=${messageId}`, { content }),
+  updateMessage: (channelId: string, messageId: string, content: string) =>
+    apiClient.patch(`/api/messages?channelId=${channelId}&id=${messageId}`, { content }),
 
-  deleteMessage: (messageId: string) =>
-    apiClient.delete(`/api/messages?id=${messageId}`),
+  deleteMessage: (channelId: string, messageId: string) =>
+    apiClient.delete(`/api/messages?channelId=${channelId}&id=${messageId}`),
 
   // Tasks
   getTasks: (channelId: string) =>
@@ -106,7 +110,7 @@ export const api = {
     apiClient.get('/api/friends/requests'),
   
   sendFriendRequest: (username: string) =>
-    apiClient.post('/api/friends/request', { username }),
+    apiClient.post('/api/friends', { username }),
   
   acceptFriendRequest: (requestId: string) =>
     apiClient.post(`/api/friends/accept/${requestId}`),

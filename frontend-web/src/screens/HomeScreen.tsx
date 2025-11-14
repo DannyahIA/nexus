@@ -11,6 +11,7 @@ export default function HomeScreen() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('online')
   const [searchQuery, setSearchQuery] = useState('')
+  const [sendingRequest, setSendingRequest] = useState(false)
   
   const friends = useFriendsStore((state) => state.friends)
   const friendRequests = useFriendsStore((state) => state.friendRequests)
@@ -22,6 +23,23 @@ export default function HomeScreen() {
 
   const handleDMClick = (channelId: string) => {
     navigate(`/dm/${channelId}`)
+  }
+
+  const handleSendFriendRequest = async () => {
+    if (!searchQuery.trim() || sendingRequest) return
+
+    setSendingRequest(true)
+    try {
+      await api.sendFriendRequest(searchQuery.trim())
+      alert(`Solicitação de amizade enviada para ${searchQuery}!`)
+      setSearchQuery('')
+    } catch (error: any) {
+      console.error('Failed to send friend request:', error)
+      const errorMsg = error.response?.data || error.message || 'Erro ao enviar solicitação'
+      alert(errorMsg)
+    } finally {
+      setSendingRequest(false)
+    }
   }
 
   const handleAcceptRequest = async (requestId: string) => {
@@ -261,10 +279,19 @@ export default function HomeScreen() {
                     placeholder="Digite o nome de usuário"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSendFriendRequest()
+                      }
+                    }}
                     className="flex-1 px-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600"
                   />
-                  <button className="px-6 py-3 bg-primary-600 hover:bg-primary-700 rounded-lg font-medium">
-                    Enviar Solicitação
+                  <button 
+                    onClick={handleSendFriendRequest}
+                    disabled={!searchQuery.trim() || sendingRequest}
+                    className="px-6 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+                  >
+                    {sendingRequest ? 'Enviando...' : 'Enviar Solicitação'}
                   </button>
                 </div>
               </div>
