@@ -29,7 +29,8 @@ interface MessageListProps {
 // Componente de mensagem individual memoizado para evitar re-renders
 const MessageItem = memo(({ 
   message, 
-  showDateSeparator, 
+  showDateSeparator,
+  isGrouped,
   currentUserId,
   isServerOwner,
   isServerAdmin,
@@ -39,6 +40,7 @@ const MessageItem = memo(({
 }: { 
   message: Message; 
   showDateSeparator: boolean;
+  isGrouped: boolean;
   currentUserId: string;
   isServerOwner?: boolean;
   isServerAdmin?: boolean;
@@ -139,7 +141,7 @@ const MessageItem = memo(({
           width: '100%',
           position: 'relative'
         }}
-        className="hover:bg-dark-800/50 -mx-2 px-2 py-1 rounded transition-colors group"
+        className={`hover:bg-dark-800/50 -mx-2 px-2 rounded transition-colors group ${isGrouped ? 'py-0.5' : 'py-1 mt-4'}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onContextMenu={handleContextMenu}
@@ -186,9 +188,11 @@ const MessageItem = memo(({
           </div>
         )}
 
-        <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
+        {/* Avatar - oculto se agrupado */}
+        <div className={`w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center ${isGrouped ? 'opacity-0' : ''}`}>
           {message.username.charAt(0).toUpperCase()}
         </div>
+        
         <div 
           style={{
             minWidth: 0,
@@ -197,27 +201,26 @@ const MessageItem = memo(({
             overflow: 'hidden'
           }}
         >
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="font-medium">{message.username}</span>
-            <span className="text-xs text-dark-400 flex-shrink-0">
-              {formatTime(message.timestamp)}
-            </span>
-            {message.editedAt && (
-              <span className="text-xs text-dark-500 flex-shrink-0">(editado)</span>
-            )}
-          </div>
+          {/* Header com nome e timestamp - só mostra se não for agrupado */}
+          {!isGrouped && (
+            <div className="flex items-baseline gap-2 mb-1">
+              <span className="font-medium">{message.username}</span>
+              <span className="text-xs text-dark-400 flex-shrink-0">
+                {formatTime(message.timestamp)}
+              </span>
+              {message.editedAt && (
+                <span className="text-xs text-dark-500 flex-shrink-0">(editado)</span>
+              )}
+            </div>
+          )}
+          
+          {/* Conteúdo da mensagem */}
           <div 
             className="text-dark-200 leading-relaxed"
             style={{
-              wordBreak: 'break-all',
+              wordBreak: 'break-word',
               overflowWrap: 'anywhere',
               whiteSpace: 'pre-wrap',
-              maxWidth: '100% !important' as any,
-              width: '100% !important' as any,
-              minWidth: '0 !important' as any,
-              display: 'block',
-              boxSizing: 'border-box',
-              overflow: 'hidden !important' as any
             }}
           >
             {message.content}
@@ -383,16 +386,26 @@ export default function MessageList({
       >
         {/* Lista de mensagens otimizada */}
         {visibleMessages.map((msg, index) => {
+          const prevMsg = index > 0 ? visibleMessages[index - 1] : undefined
+          
           const showDateSeparator =
             index === 0 ||
-            new Date(visibleMessages[index - 1].timestamp).toDateString() !==
+            new Date(prevMsg!.timestamp).toDateString() !==
               new Date(msg.timestamp).toDateString()
+
+          // Agrupar mensagens do mesmo usuário enviadas em até 5 minutos
+          const isGrouped =
+            !!prevMsg &&
+            !showDateSeparator &&
+            prevMsg.userId === msg.userId &&
+            msg.timestamp - prevMsg.timestamp < 5 * 60 * 1000 // 5 minutos
 
           return (
             <MessageItem
               key={msg.id}
               message={msg}
               showDateSeparator={showDateSeparator}
+              isGrouped={isGrouped}
               currentUserId={currentUserId}
               isServerOwner={isServerOwner}
               isServerAdmin={isServerAdmin}
