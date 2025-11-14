@@ -1,56 +1,56 @@
 # Nexus Desktop
 
-Aplicação desktop do Nexus usando Electron.
+Desktop application of Nexus using Electron.
 
-## 🚀 Tecnologias
+## 🚀 Technologies
 
-- **Electron** - Framework para aplicações desktop
-- **Electron Store** - Persistência de dados local
-- **Electron Builder** - Build e empacotamento
+- **Electron** - Framework for desktop applications
+- **Electron Store** - Local data persistence
+- **Electron Builder** - Build and packaging
 
-## 📦 Instalação
+## 📦 Installation
 
 ```bash
 cd frontend-desktop
 npm install
 ```
 
-## 🏃 Executando
+## 🏃 Running
 
-### Desenvolvimento
+### Development
 
-Para executar em modo desenvolvimento (usa o servidor Vite em http://localhost:3000):
+To run in development mode (uses the Vite dev server at http://localhost:3000):
 
 ```bash
-# 1. Primeiro, inicie o frontend web
+# 1. First, start the web frontend
 cd ../frontend-web
 npm run dev
 
-# 2. Em outro terminal, inicie o Electron
+# 2. In another terminal, start Electron
 cd ../frontend-desktop
 npm run dev
 ```
 
-### Produção
+### Production
 
-Para executar a versão de produção:
+To run the production version:
 
 ```bash
-# 1. Build do frontend web
+# 1. Build the web frontend
 cd ../frontend-web
 npm run build
 
-# 2. Copie os arquivos buildados
+# 2. Copy the built files
 cp -r dist ../frontend-desktop/renderer
 
-# 3. Inicie o Electron
+# 3. Start Electron
 cd ../frontend-desktop
 npm start
 ```
 
 ## 📦 Build
 
-Para criar executáveis para distribuição:
+To create distributable executables:
 
 ```bash
 # Windows
@@ -62,38 +62,38 @@ npm run build:mac
 # Linux
 npm run build:linux
 
-# Todas as plataformas
+# All platforms
 npm run build
 ```
 
-Os executáveis serão criados na pasta `dist/`.
+Executables will be created in the `dist/` folder.
 
 ## 🎯 Features
 
-- ✅ Aplicação nativa multiplataforma (Windows, macOS, Linux)
-- ✅ Armazenamento local com Electron Store
-- ✅ Menu nativo da aplicação
-- ✅ Atalhos de teclado
-- ✅ Auto-updates (pode ser implementado)
-- ✅ Tray icon (pode ser implementado)
-- ✅ Notificações nativas (pode ser implementado)
+- ✅ Cross-platform native application (Windows, macOS, Linux)
+- ✅ Local storage with Electron Store
+- ✅ Native application menu
+- ✅ Keyboard shortcuts
+- ✅ Auto-updates (can be implemented)
+- ✅ Tray icon (can be implemented)
+- ✅ Native notifications (can be implemented)
 
-## 📁 Estrutura
+## 📁 Structure
 
 ```
 frontend-desktop/
-├── main.js           # Processo principal do Electron
-├── preload.js        # Script de preload
-├── renderer/         # Build do frontend web
-├── assets/           # Ícones e recursos
+├── main.js           # Electron main process
+├── preload.js        # Preload script
+├── renderer/         # Built web frontend
+├── assets/           # Icons and resources
 └── package.json
 ```
 
 ## 🔧 Scripts
 
-- `npm start` - Inicia o Electron (produção)
-- `npm run dev` - Inicia o Electron (desenvolvimento)
-- `npm run build` - Build para todas as plataformas
-- `npm run build:win` - Build para Windows
-- `npm run build:mac` - Build para macOS
-- `npm run build:linux` - Build para Linux
+- `npm start` - Starts Electron (production)
+- `npm run dev` - Starts Electron (development)
+- `npm run build` - Build for all platforms
+- `npm run build:win` - Build for Windows
+- `npm run build:mac` - Build for macOS
+- `npm run build:linux` - Build for Linux
