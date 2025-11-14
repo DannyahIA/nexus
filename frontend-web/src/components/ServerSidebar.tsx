@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useServerStore } from '../store/serverStore'
 import { Plus, Users } from 'lucide-react'
 import CreateServerModal from './CreateServerModal'
+import ServerContextMenu from './ServerContextMenu'
 import { api } from '../services/api'
 
 export default function ServerSidebar() {
@@ -12,6 +13,19 @@ export default function ServerSidebar() {
   const setActiveServer = useServerStore((state) => state.setActiveServer)
   const addServer = useServerStore((state) => state.addServer)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{
+    server: any
+    position: { x: number; y: number }
+  } | null>(null)
+
+  // Fechar menu de contexto ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null)
+    if (contextMenu) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [contextMenu])
 
   const handleServerClick = (serverId: string) => {
     setActiveServer(serverId)
@@ -32,6 +46,19 @@ export default function ServerSidebar() {
       console.error('Failed to create server:', error)
       throw error
     }
+  }
+
+  const handleServerRightClick = (e: React.MouseEvent, server: any) => {
+    e.preventDefault()
+    setContextMenu({
+      server,
+      position: { x: e.clientX, y: e.clientY }
+    })
+  }
+
+  const handleUpdateServers = () => {
+    // Recarregar servidores após mudança
+    window.location.reload()
   }
 
   return (
@@ -57,6 +84,7 @@ export default function ServerSidebar() {
         <button
           key={server.id}
           onClick={() => handleServerClick(server.id)}
+          onContextMenu={(e) => handleServerRightClick(e, server)}
           className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 flex items-center justify-center text-white font-semibold ${
             activeServerId === server.id
               ? 'bg-primary-600 rounded-[16px]'
@@ -98,6 +126,16 @@ export default function ServerSidebar() {
         onClose={() => setShowCreateModal(false)}
         onCreate={handleCreateServer}
       />
+
+      {/* Menu de Contexto */}
+      {contextMenu && (
+        <ServerContextMenu
+          server={contextMenu.server}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+          onUpdate={handleUpdateServers}
+        />
+      )}
     </div>
   )
 }

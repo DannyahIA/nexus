@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Hash, Volume2, Lock, Plus, ChevronDown } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import ChannelContextMenu from './ChannelContextMenu'
 
 interface ChannelListProps {
   serverId: string | null
@@ -17,6 +18,19 @@ interface ChannelListProps {
 export default function ChannelList({ serverId, serverName, channels, activeChannelId }: ChannelListProps) {
   const navigate = useNavigate()
   const [showCreateChannel, setShowCreateChannel] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{
+    channel: any
+    position: { x: number; y: number }
+  } | null>(null)
+  
+  // Fechar menu de contexto ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null)
+    if (contextMenu) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [contextMenu])
 
   const textChannels = channels.filter((c) => c.type === 'text' || c.type === 'announcement')
   const voiceChannels = channels.filter((c) => c.type === 'voice')
@@ -27,6 +41,19 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
     } else {
       navigate(`/dm/${channelId}`)
     }
+  }
+
+  const handleChannelRightClick = (e: React.MouseEvent, channel: any) => {
+    e.preventDefault()
+    setContextMenu({
+      channel,
+      position: { x: e.clientX, y: e.clientY }
+    })
+  }
+
+  const handleUpdateChannels = () => {
+    // Recarregar canais após mudança
+    window.location.reload()
   }
 
   const getChannelIcon = (channel: typeof channels[0]) => {
@@ -71,6 +98,7 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
               <button
                 key={channel.id}
                 onClick={() => handleChannelClick(channel.id)}
+                onContextMenu={(e) => handleChannelRightClick(e, channel)}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 rounded mb-0.5 transition-colors ${
                   channel.id === activeChannelId
                     ? 'bg-dark-600 text-white'
@@ -105,6 +133,7 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
               <button
                 key={channel.id}
                 onClick={() => handleChannelClick(channel.id)}
+                onContextMenu={(e) => handleChannelRightClick(e, channel)}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 rounded mb-0.5 transition-colors ${
                   channel.id === activeChannelId
                     ? 'bg-dark-600 text-white'
@@ -131,6 +160,17 @@ export default function ChannelList({ serverId, serverName, channels, activeChan
           </div>
         )}
       </div>
+
+      {/* Menu de Contexto */}
+      {contextMenu && (
+        <ChannelContextMenu
+          channel={contextMenu.channel}
+          serverId={serverId || undefined}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+          onUpdate={handleUpdateChannels}
+        />
+      )}
     </div>
   )
 }
