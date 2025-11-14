@@ -86,11 +86,24 @@ func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	messages := make([]MessageResponse, 0)
 	for _, row := range rows {
 		// Buscar username do usuário
-		username := "User"
+		username := "Unknown User"
 		authorID := row["author_id"].(string)
-		if userRow, err := mh.db.GetUserByID(authorID); err == nil {
-			if uname, ok := userRow["username"].(string); ok {
+		
+		userRow, err := mh.db.GetUserByID(authorID)
+		if err != nil {
+			mh.logger.Warn("failed to get user info for message",
+				zap.Error(err),
+				zap.String("authorId", authorID),
+				zap.String("msgId", row["msg_id"].(string)),
+			)
+		} else {
+			if uname, ok := userRow["username"].(string); ok && uname != "" {
 				username = uname
+			} else {
+				mh.logger.Warn("username not found in user row",
+					zap.String("authorId", authorID),
+					zap.Any("userRow", userRow),
+				)
 			}
 		}
 
