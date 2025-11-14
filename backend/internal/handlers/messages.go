@@ -165,6 +165,12 @@ func (mh *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mh.logger.Info("sending message",
+		zap.String("userId", claims.UserID),
+		zap.String("username", claims.Username),
+		zap.String("channelId", channelID),
+	)
+
 	// Gerar ID da mensagem
 	messageID := uuid.Must(uuid.NewV4()).String()
 
