@@ -203,10 +203,42 @@ func (mh *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// TODO: Verificar se o usuário é o autor
+	// Obter usuário do contexto
+	claims, ok := r.Context().Value("claims").(*Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Buscar mensagem para verificar o autor
+	messageRows, err := mh.db.GetMessagesByChannel(channelID, 1000, nil)
+	if err != nil {
+		mh.logger.Error("failed to get message", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var message map[string]interface{}
+	for _, row := range messageRows {
+		if row["msg_id"].(string) == messageID {
+			message = row
+			break
+		}
+	}
+
+	if message == nil {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+
+	authorID := message["author_id"].(string)
+	if authorID != claims.UserID {
+		http.Error(w, "forbidden: you can only edit your own messages", http.StatusForbidden)
+		return
+	}
 
 	// Atualizar no banco de dados
-	err := mh.db.UpdateMessage(channelID, messageID, req.Content)
+	err = mh.db.UpdateMessage(channelID, messageID, req.Content)
 	if err != nil {
 		mh.logger.Error("failed to update message", zap.Error(err))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -214,20 +246,20 @@ func (mh *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	editedAt := time.Now().UnixMilli()
-	message := MessageResponse{
+	response := MessageResponse{
 		ID:        messageID,
 		ChannelID: channelID,
-		UserID:    "user-id",
-		Username:  "Username",
+		UserID:    claims.UserID,
+		Username:  claims.Username,
 		Content:   req.Content,
 		Timestamp: time.Now().UnixMilli(),
 		EditedAt:  &editedAt,
 	}
 
-	mh.logger.Info("message updated", zap.String("id", messageID))
+	mh.logger.Info("message updated", zap.String("id", messageID), zap.String("userId", claims.UserID))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(message)
+	json.NewEncoder(w).Encode(response)
 }
 
 // DeleteMessage deleta uma mensagem
@@ -244,17 +276,73 @@ func (mh *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// TODO: Verificar se o usuário é o autor ou admin
+	// Obter usuário do contexto
+	claims, ok := r.Context().Value("claims").(*Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Buscar mensagem para verificar o autor
+	messageRows, err := mh.db.GetMessagesByChannel(channelID, 1000, nil)
+	if err != nil {
+		mh.logger.Error("failed to get message", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var message map[string]interface{}
+	for _, row := range messageRows {
+		if row["msg_id"].(string) == messageID {
+			message = row
+			break
+		}
+	}
+
+	if message == nil {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+
+	authorID := message["author_id"].(string)
+	canDelete := authorID == claims.UserID
+
+	// Se não é o autor, verificar se é owner ou admin do servidor
+	if !canDelete {
+		// Buscar canal para obter o group_id (servidor)
+		channelRow, err := mh.db.GetChannelByID(channelID)
+		if err == nil {
+			if serverID, ok := channelRow["server_id"].(string); ok && serverID != "" {
+				// Buscar servidor
+				if serverRow, err := mh.db.GetGroupByID(serverID); err == nil {
+					// Verificar se é owner
+					if ownerID, ok := serverRow["owner_id"].(string); ok && ownerID == claims.UserID {
+						canDelete = true
+					} else {
+						// Verificar se é admin
+						if role, err := mh.db.GetGroupMemberRole(serverID, claims.UserID); err == nil {
+							canDelete = role == "admin" || role == "moderator"
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if !canDelete {
+		http.Error(w, "forbidden: you can only delete your own messages or you must be a server admin", http.StatusForbidden)
+		return
+	}
 
 	// Deletar do banco de dados
-	err := mh.db.DeleteMessage(channelID, messageID)
+	err = mh.db.DeleteMessage(channelID, messageID)
 	if err != nil {
 		mh.logger.Error("failed to delete message", zap.Error(err))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	mh.logger.Info("message deleted", zap.String("id", messageID))
+	mh.logger.Info("message deleted", zap.String("id", messageID), zap.String("userId", claims.UserID))
 
 	w.WriteHeader(http.StatusNoContent)
 }
