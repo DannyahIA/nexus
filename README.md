@@ -8,17 +8,9 @@
 [![Docker](https://img.shields.io/badge/Docker-latest-blue)](https://www.docker.com/)
 [![Cassandra](https://img.shields.io/badge/Cassandra-4.1-blue)](https://cassandra.apache.org/)
 [![NATS](https://img.shields.io/badge/NATS-JetStream-blue)](https://nats.io/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICEN## 📞 Support
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-- 📧 **Email**: contato@eclipsiasoftware.com
-- 🐙 **GitHub Issues**: [Report a bug or request a feature](https://github.com/DannyahIA/nexus/issues)
-- 💬 **Discussions**: [Join the conversation](https://github.com/DannyahIA/nexus/discussions)
-
----
-
-**Made with ❤️ by [Dannyah](https://github.com/DannyahIA)**
-
-*Last updated: November 14, 2025*us** is a real-time communication platform that combines the best of Discord (chat, voice, video) with the best of Linear (task management, Kanban). Built with modern, high-performance technologies.
+**Nexus** is a real-time communication platform that combines the best of Discord (chat, voice, video) with the best of Linear (task management, Kanban). Built with modern, high-performance technologies.
 
 ## ✨ Features
 
