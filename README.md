@@ -4,13 +4,10 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-latest-blue)](https://vitejs.dev/)
 [![WebRTC](https://img.shields.io/badge/WebRTC-latest-blue)](https://webrtc.org/)
-
 [![Docker](https://img.shields.io/badge/Docker-latest-blue)](https://www.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-latest-blue)](https://kubernetes.io/)
-
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)](https://www.postgresql.org/)
 [![Cassandra](https://img.shields.io/badge/Cassandra-4.1-blue)](https://cassandra.apache.org/)
-
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 **Nexus** is a real-time communication platform that combines the best of Discord (chat, voice, video) with the best of Linear (task management, Kanban). Built with modern, high-performance technologies.
