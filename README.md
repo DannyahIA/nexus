@@ -218,15 +218,6 @@ nexus/
 - **TURN Server**: coturn (for WebRTC)
 - **Orchestration**: Docker Compose (Kubernetes ready)
 
-## 📚 Documentation
-
-- [API Reference](./docs/API.md) - REST and WebSocket endpoints *(coming soon)*
-- [Architecture](./docs/ARCHITECTURE.md) - Design patterns and decisions *(coming soon)*
-- [Contributing](./docs/CONTRIBUTING.md) - How to contribute *(coming soon)*
-- [Docker Guide](./DOCKER-GUIDE.md) - Docker setup and troubleshooting
-- [Implementation Guide](./IMPLEMENTATION-GROUPS-FRIENDS.md) - Groups & Friends implementation
-- [Roadmap](./ROADMAP-FEATURES.md) - Feature planning and progress
-
 ## 🗄️ Database Schema
 
 ### Cassandra Tables (CQL)
