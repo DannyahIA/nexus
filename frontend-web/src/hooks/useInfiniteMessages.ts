@@ -20,6 +20,8 @@ export interface UseInfiniteMessagesReturn {
   loadMore: () => void
   reset: () => void
   addMessage: (message: Message) => void
+  updateMessage: (messageId: string, content: string) => void
+  removeMessage: (messageId: string) => void
 }
 
 export function useInfiniteMessages(channelId: string | undefined): UseInfiniteMessagesReturn {
@@ -158,6 +160,20 @@ export function useInfiniteMessages(channelId: string | undefined): UseInfiniteM
     })
   }, [])
 
+  const updateMessage = useCallback((messageId: string, content: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? { ...m, content, editedAt: Date.now() }
+          : m
+      )
+    )
+  }, [])
+
+  const removeMessage = useCallback((messageId: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId))
+  }, [])
+
   return {
     messages,
     hasMore,
@@ -166,5 +182,7 @@ export function useInfiniteMessages(channelId: string | undefined): UseInfiniteM
     loadMore,
     reset,
     addMessage,
+    updateMessage,
+    removeMessage,
   }
 }
