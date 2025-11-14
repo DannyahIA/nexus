@@ -99,7 +99,7 @@ export default function MainLayout() {
   const currentChannels = serverId ? serverChannels[serverId] || [] : []
 
   return (
-    <div className="flex h-screen bg-dark-900 text-white">
+    <div className="flex h-screen bg-dark-900 text-white overflow-hidden">
       {/* Server Sidebar */}
       <ServerSidebar />
 
