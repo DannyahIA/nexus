@@ -272,13 +272,13 @@ func (db *CassandraDB) GetAllChannels() ([]map[string]interface{}, error) {
 
 // GetChannelByID retorna um canal específico
 func (db *CassandraDB) GetChannelByID(channelID string) (map[string]interface{}, error) {
-	query := `SELECT channel_id, name, type, owner_id, description, created_at, updated_at FROM nexus.channels WHERE channel_id = ?`
+	query := `SELECT channel_id, name, type, owner_id, description, server_id, created_at, updated_at FROM nexus.channels WHERE channel_id = ?`
 
-	var chID, ownerID gocql.UUID
+	var chID, ownerID, serverID gocql.UUID
 	var name, channelType, description string
 	var createdAt, updatedAt time.Time
 
-	err := db.session.Query(query, channelID).Scan(&chID, &name, &channelType, &ownerID, &description, &createdAt, &updatedAt)
+	err := db.session.Query(query, channelID).Scan(&chID, &name, &channelType, &ownerID, &description, &serverID, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +289,7 @@ func (db *CassandraDB) GetChannelByID(channelID string) (map[string]interface{},
 		"type":        channelType,
 		"owner_id":    ownerID.String(),
 		"description": description,
+		"server_id":   serverID.String(),
 		"created_at":  createdAt,
 		"updated_at":  updatedAt,
 	}
@@ -400,15 +401,28 @@ func (db *CassandraDB) UpdateMessage(channelID, messageID, newContent string) er
 		return err
 	}
 
-	query := `UPDATE nexus.messages_by_channel 
-	          SET content = ?, edited_at = ?
-	          WHERE channel_id = ? AND bucket = ? AND msg_id = ?`
+	// Buscar a mensagem para obter o ts
+	selectQuery := `SELECT ts FROM nexus.messages_by_channel 
+	                WHERE channel_id = ? AND bucket = ? AND msg_id = ?
+	                ALLOW FILTERING`
+	
+	var ts time.Time
+	err = db.session.Query(selectQuery, channelUUID, bucket, msgUUID).Scan(&ts)
+	if err != nil {
+		return err
+	}
 
-	return db.session.Query(query, newContent, time.Now(), channelUUID, bucket, msgUUID).Exec()
+	// Atualizar com todas as chaves primárias
+	updateQuery := `UPDATE nexus.messages_by_channel 
+	                SET content = ?, edited_at = ?
+	                WHERE channel_id = ? AND bucket = ? AND ts = ? AND msg_id = ?`
+
+	return db.session.Query(updateQuery, newContent, time.Now(), channelUUID, bucket, ts, msgUUID).Exec()
 }
 
 // DeleteMessage deleta uma mensagem
 func (db *CassandraDB) DeleteMessage(channelID, messageID string) error {
+	// Primeiro, buscar a mensagem para obter o timestamp
 	bucket := time.Now().Year()*100 + int(time.Now().Month())
 
 	channelUUID, err := gocql.ParseUUID(channelID)
@@ -421,10 +435,22 @@ func (db *CassandraDB) DeleteMessage(channelID, messageID string) error {
 		return err
 	}
 
-	query := `DELETE FROM nexus.messages_by_channel 
-	          WHERE channel_id = ? AND bucket = ? AND msg_id = ?`
+	// Buscar a mensagem para obter o ts
+	selectQuery := `SELECT ts FROM nexus.messages_by_channel 
+	                WHERE channel_id = ? AND bucket = ? AND msg_id = ?
+	                ALLOW FILTERING`
+	
+	var ts time.Time
+	err = db.session.Query(selectQuery, channelUUID, bucket, msgUUID).Scan(&ts)
+	if err != nil {
+		return err
+	}
 
-	return db.session.Query(query, channelUUID, bucket, msgUUID).Exec()
+	// Agora deletar com todas as chaves primárias
+	deleteQuery := `DELETE FROM nexus.messages_by_channel 
+	                WHERE channel_id = ? AND bucket = ? AND ts = ? AND msg_id = ?`
+
+	return db.session.Query(deleteQuery, channelUUID, bucket, ts, msgUUID).Exec()
 }
 
 // CreateTask cria uma nova task

@@ -84,15 +84,14 @@ func (db *CassandraDB) IsGroupMember(groupID, userID string) (bool, error) {
 
 // GetGroupByInviteCode busca grupo pelo código de convite
 func (db *CassandraDB) GetGroupByInviteCode(inviteCode string) (map[string]interface{}, error) {
-	query := `SELECT group_id, name, description, owner_id, icon_url, is_public, created_at
+	query := `SELECT group_id, name, description, owner_id, icon_url, created_at
 	          FROM nexus.groups WHERE invite_code = ? ALLOW FILTERING`
 	
 	var groupID, ownerID gocql.UUID
 	var name, description, iconURL string
-	var isPublic bool
 	var createdAt time.Time
 
-	err := db.session.Query(query, inviteCode).Scan(&groupID, &name, &description, &ownerID, &iconURL, &isPublic, &createdAt)
+	err := db.session.Query(query, inviteCode).Scan(&groupID, &name, &description, &ownerID, &iconURL, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +102,49 @@ func (db *CassandraDB) GetGroupByInviteCode(inviteCode string) (map[string]inter
 		"description": description,
 		"owner_id":    ownerID.String(),
 		"icon_url":    iconURL,
-		"is_public":   isPublic,
 		"created_at":  createdAt,
 	}, nil
+}
+
+// GetGroupByID busca grupo pelo ID
+func (db *CassandraDB) GetGroupByID(groupID string) (map[string]interface{}, error) {
+	query := `SELECT group_id, name, description, owner_id, icon_url, created_at
+	          FROM nexus.groups WHERE group_id = ?`
+	
+	groupUUID, _ := gocql.ParseUUID(groupID)
+	
+	var foundGroupID, ownerID gocql.UUID
+	var name, description, iconURL string
+	var createdAt time.Time
+
+	err := db.session.Query(query, groupUUID).Scan(&foundGroupID, &name, &description, &ownerID, &iconURL, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"group_id":    foundGroupID.String(),
+		"name":        name,
+		"description": description,
+		"owner_id":    ownerID.String(),
+		"icon_url":    iconURL,
+		"created_at":  createdAt,
+	}, nil
+}
+
+// GetGroupMemberRole retorna o role de um membro no grupo
+func (db *CassandraDB) GetGroupMemberRole(groupID, userID string) (string, error) {
+	query := `SELECT role FROM nexus.group_members WHERE group_id = ? AND user_id = ?`
+	
+	groupUUID, _ := gocql.ParseUUID(groupID)
+	userUUID, _ := gocql.ParseUUID(userID)
+	
+	var role string
+	err := db.session.Query(query, groupUUID, userUUID).Scan(&role)
+	if err != nil {
+		return "", err
+	}
+	return role, nil
 }
 
 // SetChannelGroup associa um canal a um grupo
@@ -147,6 +186,18 @@ func (db *CassandraDB) GetGroupChannels(groupID string) ([]map[string]interface{
 	}
 
 	return results, iter.Close()
+}
+
+// DeleteServer deleta um servidor (grupo)
+func (db *CassandraDB) DeleteServer(serverID string) error {
+	query := `DELETE FROM nexus.groups WHERE group_id = ?`
+	
+	serverUUID, err := gocql.ParseUUID(serverID)
+	if err != nil {
+		return err
+	}
+	
+	return db.session.Query(query, serverUUID).Exec()
 }
 
 // ==================== AMIGOS ====================
@@ -404,43 +455,63 @@ func (db *CassandraDB) GetUserServers(userID string) ([]map[string]interface{}, 
 
 // CreateServerChannel cria um canal em um servidor
 func (db *CassandraDB) CreateServerChannel(channelID, serverID, name, description, channelType, ownerID string) error {
-	query := `INSERT INTO nexus.channels (channel_id, name, type, owner_id, description, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO nexus.channels (channel_id, name, type, owner_id, description, server_id, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	
 	channelUUID, _ := gocql.ParseUUID(channelID)
+	serverUUID, _ := gocql.ParseUUID(serverID)
 	ownerUUID, _ := gocql.ParseUUID(ownerID)
 	now := time.Now()
 	
-	// Note: Precisaríamos adicionar server_id na tabela channels, mas por ora vamos criar assim
-	return db.session.Query(query, channelUUID, name, channelType, ownerUUID, description, now, now).Exec()
+	return db.session.Query(query, channelUUID, name, channelType, ownerUUID, description, serverUUID, now, now).Exec()
 }
 
 // GetServerChannels retorna canais de um servidor
 func (db *CassandraDB) GetServerChannels(serverID string) ([]map[string]interface{}, error) {
-	// Por enquanto, vamos retornar todos os canais (TODO: filtrar por server_id quando adicionarmos o campo)
-	query := `SELECT channel_id, name, type, owner_id, description, created_at
+	query := `SELECT channel_id, name, type, owner_id, description, server_id, created_at
 	          FROM nexus.channels
+	          WHERE server_id = ?
 	          ALLOW FILTERING`
 	
-	iter := db.session.Query(query).Iter()
+	serverUUID, _ := gocql.ParseUUID(serverID)
+	iter := db.session.Query(query, serverUUID).Iter()
 	defer iter.Close()
 
 	var results []map[string]interface{}
-	var channelID, ownerID gocql.UUID
+	var channelID, ownerID, serverUUID2 gocql.UUID
 	var name, channelType, description string
 	var createdAt time.Time
 
-	for iter.Scan(&channelID, &name, &channelType, &ownerID, &description, &createdAt) {
+	for iter.Scan(&channelID, &name, &channelType, &ownerID, &description, &serverUUID2, &createdAt) {
 		row := map[string]interface{}{
 			"channel_id":  channelID.String(),
 			"name":        name,
 			"type":        channelType,
 			"owner_id":    ownerID.String(),
 			"description": description,
+			"server_id":   serverUUID2.String(),
 			"created_at":  createdAt,
 		}
 		results = append(results, row)
 	}
 
 	return results, iter.Close()
+}
+
+// UpdateServer atualiza informações de um servidor
+func (db *CassandraDB) UpdateServer(serverID, name, description string) error {
+	query := `UPDATE nexus.groups SET name = ?, description = ? WHERE group_id = ?`
+	
+	serverUUID, _ := gocql.ParseUUID(serverID)
+	
+	return db.session.Query(query, name, description, serverUUID).Exec()
+}
+
+// UpdateChannel atualiza informações de um canal
+func (db *CassandraDB) UpdateChannel(channelID, name, description string) error {
+	query := `UPDATE nexus.channels SET name = ?, description = ? WHERE channel_id = ?`
+	
+	channelUUID, _ := gocql.ParseUUID(channelID)
+	
+	return db.session.Query(query, name, description, channelUUID).Exec()
 }
