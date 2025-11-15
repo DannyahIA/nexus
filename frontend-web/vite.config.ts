@@ -18,11 +18,11 @@ export default defineConfig({
     ...(!process.env.VITE_NETWORK_MODE && {
       proxy: {
         '/api': {
-          target: 'http://localhost:8000',
+          target: 'https://nexus-api.eclipsiasoftware.com',
           changeOrigin: true,
         },
         '/ws': {
-          target: 'ws://localhost:8080',
+          target: 'wss://nexus-ws.eclipsiasoftware.com',
           ws: true,
         },
       },
