@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useServerStore } from '../store/serverStore'
-import { Plus, Users } from 'lucide-react'
+import { Plus, Users, UserPlus } from 'lucide-react'
 import CreateServerModal from './CreateServerModal'
 import ServerContextMenu from './ServerContextMenu'
+import ServerInviteModal from './ServerInviteModal'
 import { api } from '../services/api'
 
 export default function ServerSidebar() {
@@ -13,6 +14,7 @@ export default function ServerSidebar() {
   const setActiveServer = useServerStore((state) => state.setActiveServer)
   const addServer = useServerStore((state) => state.addServer)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showJoinModal, setShowJoinModal] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
     server: any
     position: { x: number; y: number }
@@ -115,9 +117,18 @@ export default function ServerSidebar() {
       <button
         onClick={() => setShowCreateModal(true)}
         className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 bg-dark-700 hover:bg-green-600 flex items-center justify-center group"
-        title="Adicionar Servidor"
+        title="Criar Servidor"
       >
         <Plus className="w-6 h-6 text-green-500 group-hover:text-white" />
+      </button>
+
+      {/* Botão Entrar em Servidor */}
+      <button
+        onClick={() => setShowJoinModal(true)}
+        className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 bg-dark-700 hover:bg-blue-600 flex items-center justify-center group"
+        title="Entrar em Servidor"
+      >
+        <UserPlus className="w-6 h-6 text-blue-500 group-hover:text-white" />
       </button>
 
       {/* Modal de Criar Servidor */}
@@ -125,6 +136,13 @@ export default function ServerSidebar() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onCreate={handleCreateServer}
+      />
+
+      {/* Modal de Entrar em Servidor */}
+      <ServerInviteModal
+        isOpen={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+        mode="join"
       />
 
       {/* Menu de Contexto */}

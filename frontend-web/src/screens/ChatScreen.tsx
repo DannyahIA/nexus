@@ -4,16 +4,28 @@ import { useChatStore } from '../store/chatStore'
 import { useServerStore } from '../store/serverStore'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
+import { useVoiceStore } from '../store/voiceStore'
 import { wsService } from '../services/websocket'
+import { webrtcService } from '../services/webrtc'
 import { api } from '../services/api'
-import { Send, Hash, Users } from 'lucide-react'
+import { Send, Hash, Users, UserPlus, Phone, PhoneOff } from 'lucide-react'
 import MessageList from '../components/MessageList'
+import ServerInviteModal from '../components/ServerInviteModal'
+import VoiceChannel from '../components/VoiceChannel'
 import { useInfiniteMessages } from '../hooks/useInfiniteMessages'
 
 export default function ChatScreen() {
   const { channelId, serverId } = useParams()
   const [message, setMessage] = useState('')
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [joiningVoice, setJoiningVoice] = useState(false)
   const typingTimeoutRef = useRef<number | null>(null)
+  
+  // Voice state
+  const isConnected = useVoiceStore((state) => state.isConnected)
+  const currentVoiceChannelId = useVoiceStore((state) => state.currentChannelId)
+  const setConnected = useVoiceStore((state) => state.setConnected)
+  const setDisconnected = useVoiceStore((state) => state.setDisconnected)
 
   const setActiveChannel = useChatStore((state) => state.setActiveChannel)
   const user = useAuthStore((state) => state.user)
@@ -142,7 +154,10 @@ export default function ChatScreen() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!message.trim() || !currentChannel) return
+    if (!message.trim() || !channelId) {
+      console.log('Cannot send message:', { message: message.trim(), channelId })
+      return
+    }
 
     // Limpar timeout de digitação
     if (typingTimeoutRef.current) {
@@ -151,18 +166,29 @@ export default function ChatScreen() {
     }
 
     // Enviar indicador de parou de digitar
-    wsService.sendTyping(currentChannel.id, false)
+    if (currentChannel) {
+      wsService.sendTyping(currentChannel.id, false)
+    }
+
+    const messageToSend = message
+    setMessage('') // Limpar input imediatamente para melhor UX
 
     try {
+      console.log('Sending message to channel:', channelId)
+      
+      // Enviar via API para persistência
+      const response = await api.sendMessage(channelId, messageToSend)
+      console.log('Message sent successfully:', response.data)
+      
       // Enviar via WebSocket para broadcast em tempo real
-      wsService.sendMessage(currentChannel.id, message)
+      wsService.sendMessage(channelId, messageToSend)
       
-      // Também enviar via API para persistência
-      await api.sendMessage(currentChannel.id, message)
-      
-      setMessage('')
+      // NÃO adicionar mensagem localmente aqui - deixar o WebSocket fazer isso
+      // para evitar duplicação. A mensagem será recebida via WebSocket broadcast
     } catch (error) {
       console.error('Failed to send message:', error)
+      setMessage(messageToSend) // Restaurar mensagem em caso de erro
+      alert('Erro ao enviar mensagem. Tente novamente.')
     }
   }
 
@@ -186,13 +212,40 @@ export default function ChatScreen() {
     }, 3000)
   }
 
+  // Voice handlers
+  const handleJoinVoice = async () => {
+    if (!channelId || !channelName) return
+    
+    setJoiningVoice(true)
+    try {
+      await webrtcService.joinVoiceChannel(channelId, false)
+      setConnected(channelId, channelName)
+      console.log('✅ Joined voice channel')
+    } catch (error) {
+      console.error('Failed to join voice:', error)
+      alert('Não foi possível entrar no canal de voz. Verifique as permissões de microfone.')
+    } finally {
+      setJoiningVoice(false)
+    }
+  }
+
+  const handleLeaveVoice = () => {
+    webrtcService.leaveVoiceChannel()
+    setDisconnected()
+  }
+
+  // Verificar se está em voz neste canal
+  const isInVoiceThisChannel = isConnected && currentVoiceChannelId === channelId
+
   // Nome do canal para exibição
   const channelName = currentChannel 
-    ? ('name' in currentChannel 
+    ? ('name' in currentChannel && currentChannel.name
         ? currentChannel.name 
-        : currentChannel.type === 'dm' 
-          ? currentChannel.participants[0]?.username || 'Direct Message'
-          : currentChannel.name || 'Group DM')
+        : currentChannel.type === 'dm' && 'participants' in currentChannel && Array.isArray(currentChannel.participants) && currentChannel.participants.length > 0
+          ? (typeof currentChannel.participants[0] === 'object' && 'username' in currentChannel.participants[0]
+              ? currentChannel.participants[0].username
+              : 'Direct Message')
+          : 'Direct Message')
     : ''
 
   // Ícone do canal (Hash para servidor, Users para DM)
@@ -211,36 +264,161 @@ export default function ChatScreen() {
     )
   }
 
+  // Obter informações do outro usuário no DM
+  const otherUser = isDM && currentChannel && 'participants' in currentChannel && Array.isArray(currentChannel.participants) && currentChannel.participants.length > 0
+    ? (typeof currentChannel.participants[0] === 'object' 
+        ? currentChannel.participants.find((p: any) => p.userId !== user?.id)
+        : null)
+    : null
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden" style={{ maxWidth: '100%', width: '100%' }}>
       {/* Header */}
       <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4 gap-4">
         {currentChannel && (
-          <div className="flex items-center gap-2">
-            <ChannelIcon className="w-5 h-5 text-dark-400" />
-            <h2 className="font-semibold">{channelName}</h2>
-            {!isDM && 'description' in currentChannel && currentChannel.description && (
-              <span className="text-sm text-dark-400">- {currentChannel.description}</span>
-            )}
-          </div>
+          <>
+            <div className="flex items-center gap-3 flex-1">
+              {/* Avatar para DM */}
+              {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && (
+                <div className="relative">
+                  <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
+                    {otherUser.username?.charAt(0).toUpperCase() || '?'}
+                  </div>
+                  {/* Status indicator */}
+                  {'status' in otherUser ? (
+                    <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-dark-800 ${
+                      (otherUser as any).status === 'online' ? 'bg-green-500' :
+                      (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
+                      (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
+                    }`} />
+                  ) : null}
+                </div>
+              )}
+              
+              {/* Icon para canal de servidor */}
+              {!isDM && <ChannelIcon className="w-5 h-5 text-dark-400" />}
+              
+              <div>
+                <h2 className="font-semibold">{channelName}</h2>
+                {isDM && otherUser && typeof otherUser === 'object' && 'status' in otherUser ? (
+                  <p className="text-xs text-dark-400 capitalize">{(otherUser as any).status || 'offline'}</p>
+                ) : null}
+                {!isDM && 'description' in currentChannel && currentChannel.description ? (
+                  <p className="text-xs text-dark-400">{currentChannel.description}</p>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Botões de ação */}
+            <div className="flex items-center gap-2">
+              {/* Botão de Voice (apenas em servidores) */}
+              {!isDM && currentServer && (
+                <button
+                  onClick={isInVoiceThisChannel ? handleLeaveVoice : handleJoinVoice}
+                  disabled={joiningVoice || (isConnected && !isInVoiceThisChannel)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                    isInVoiceThisChannel
+                      ? 'bg-green-600 hover:bg-green-700'
+                      : 'bg-dark-700 hover:bg-dark-600'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  title={isInVoiceThisChannel ? 'Sair do Voice' : 'Entrar no Voice'}
+                >
+                  {isInVoiceThisChannel ? (
+                    <>
+                      <PhoneOff className="w-4 h-4" />
+                      Em Voz
+                    </>
+                  ) : (
+                    <>
+                      <Phone className="w-4 h-4" />
+                      {joiningVoice ? 'Conectando...' : 'Voice'}
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Botão de Convite (apenas em servidores) */}
+              {!isDM && currentServer && (
+                <button
+                  onClick={() => setShowInviteModal(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 rounded text-sm font-medium transition-colors"
+                  title="Convidar Pessoas"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Convidar
+                </button>
+              )}
+            </div>
+          </>
         )}
       </div>
 
-      {/* Messages */}
-      <MessageList
-        messages={messages}
-        loading={loading}
-        hasMore={hasMore}
-        onLoadMore={loadMore}
-        currentUserId={user?.id || ''}
-        isServerOwner={isServerOwner}
-        isServerAdmin={isServerAdmin}
-        onDeleteMessage={handleDeleteMessage}
-        onEditMessage={handleEditMessage}
-        onReplyMessage={handleReplyMessage}
-      />
+      {/* Modal de Convite */}
+      {currentServer && (
+        <ServerInviteModal
+          isOpen={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          server={currentServer}
+          mode="invite"
+        />
+      )}
 
-      {/* Input */}
+      {/* Voice Channel ou Messages */}
+      {isInVoiceThisChannel ? (
+        <VoiceChannel
+          channelId={channelId}
+          channelName={channelName}
+          onLeave={handleLeaveVoice}
+        />
+      ) : (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* DM User Info Banner (Discord-style) */}
+          {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && messages.length === 0 && !loading && (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="text-center max-w-md">
+              <div className="w-20 h-20 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl font-bold">
+                  {otherUser.username?.charAt(0).toUpperCase() || '?'}
+                </span>
+              </div>
+              <h2 className="text-2xl font-bold mb-2">{otherUser.username}</h2>
+              <p className="text-dark-400 mb-4">
+                Este é o início da sua conversa direta com <span className="font-semibold text-white">@{otherUser.username}</span>
+              </p>
+              {'status' in otherUser ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-dark-400">
+                  <div className={`w-2 h-2 rounded-full ${
+                    (otherUser as any).status === 'online' ? 'bg-green-500' :
+                    (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
+                    (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
+                  }`} />
+                  <span className="capitalize">{(otherUser as any).status || 'offline'}</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+        
+        {/* Message List */}
+        {(messages.length > 0 || loading) && (
+          <MessageList
+            messages={messages}
+            loading={loading}
+            hasMore={hasMore}
+            onLoadMore={loadMore}
+            currentUserId={user?.id || ''}
+            isServerOwner={isServerOwner}
+            isServerAdmin={isServerAdmin}
+            onDeleteMessage={handleDeleteMessage}
+            onEditMessage={handleEditMessage}
+            onReplyMessage={handleReplyMessage}
+          />
+        )}
+        </div>
+      )}
+
+      {/* Input (apenas quando não estiver em voice) */}
+      {!isInVoiceThisChannel && (
       <div className="p-4 border-t border-dark-700">
         <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
           <textarea
@@ -277,6 +455,7 @@ export default function ChatScreen() {
           </span>
         </div>
       </div>
+      )}
     </div>
   )
 }

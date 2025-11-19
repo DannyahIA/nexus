@@ -240,8 +240,11 @@ func main() {
 		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			path := r.URL.Path
 			
-			// Verifica se é /api/servers/{id}/channels
-			if strings.HasSuffix(path, "/channels") && r.Method == http.MethodGet {
+			// Verifica se é /api/servers/join/{code}
+			if strings.HasPrefix(path, "/api/servers/join/") && r.Method == http.MethodPost {
+				serverHandler.JoinServerByInvite(w, r)
+			} else if strings.HasSuffix(path, "/channels") && r.Method == http.MethodGet {
+				// /api/servers/{id}/channels
 				serverHandler.GetServerChannels(w, r)
 			} else if r.Method == http.MethodPut || r.Method == http.MethodPatch {
 				// Atualização de servidor /api/servers/{id}
@@ -267,10 +270,41 @@ func main() {
 		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
-				// Por enquanto retorna lista vazia
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte("[]"))
+				friendHandler.GetFriendRequests(w, r)
 			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	// Rota para aceitar/rejeitar solicitações de amizade
+	mux.HandleFunc("/api/friends/accept/", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				friendHandler.AcceptFriendRequest(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	mux.HandleFunc("/api/friends/reject/", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				friendHandler.RejectFriendRequest(w, r)
+			} else {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		})).ServeHTTP(w, r)
@@ -297,6 +331,23 @@ func main() {
 		})).ServeHTTP(w, r)
 	})
 
+	// Rota para remover amigo
+	mux.HandleFunc("/api/friends/", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete {
+				friendHandler.RemoveFriend(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
 	// Rota para DMs/Mensagens diretas (protegida)
 	mux.HandleFunc("/api/dms", func(w http.ResponseWriter, r *http.Request) {
 		enableCORS(w)
@@ -308,10 +359,24 @@ func main() {
 		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
-				// Por enquanto retorna lista vazia de DMs
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte("[]"))
+				friendHandler.GetDMs(w, r)
 			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	// Rota para criar DM
+	mux.HandleFunc("/api/dms/create", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				friendHandler.CreateDM(w, r)
+			} else {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		})).ServeHTTP(w, r)

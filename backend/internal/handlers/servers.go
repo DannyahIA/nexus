@@ -34,6 +34,7 @@ type ServerResponse struct {
 	Description string `json:"description"`
 	OwnerID     string `json:"ownerId"`
 	IconURL     string `json:"iconUrl,omitempty"`
+	InviteCode  string `json:"inviteCode,omitempty"`
 	CreatedAt   int64  `json:"createdAt"`
 }
 
@@ -62,12 +63,17 @@ func (sh *ServerHandler) GetServers(w http.ResponseWriter, r *http.Request) {
 
 	response := make([]ServerResponse, 0)
 	for _, server := range servers {
+		inviteCode := ""
+		if ic, ok := server["invite_code"].(string); ok {
+			inviteCode = ic
+		}
 		response = append(response, ServerResponse{
 			ID:          server["server_id"].(string),
 			Name:        server["name"].(string),
 			Description: server["description"].(string),
 			OwnerID:     server["owner_id"].(string),
 			IconURL:     server["icon_url"].(string),
+			InviteCode:  inviteCode,
 			CreatedAt:   server["created_at"].(int64),
 		})
 	}
@@ -78,17 +84,23 @@ func (sh *ServerHandler) GetServers(w http.ResponseWriter, r *http.Request) {
 
 // CreateServer cria um novo servidor
 func (sh *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
+	sh.logger.Info("CreateServer handler called")
+	
 	claims, ok := r.Context().Value("claims").(*Claims)
 	if !ok || claims == nil {
+		sh.logger.Error("unauthorized - no claims")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	var req CreateServerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sh.logger.Error("invalid request body", zap.Error(err))
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	
+	sh.logger.Info("request decoded", zap.String("name", req.Name))
 
 	if req.Name == "" {
 		http.Error(w, "server name is required", http.StatusBadRequest)
@@ -96,9 +108,15 @@ func (sh *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := uuid.Must(uuid.NewV4()).String()
+	inviteCode := generateInviteCode()
+
+	sh.logger.Info("creating server", 
+		zap.String("serverId", serverID),
+		zap.String("inviteCode", inviteCode),
+		zap.String("name", req.Name))
 
 	// Criar servidor
-	err := sh.db.CreateServer(serverID, req.Name, req.Description, claims.UserID, req.Icon)
+	err := sh.db.CreateServer(serverID, req.Name, req.Description, claims.UserID, req.Icon, inviteCode)
 	if err != nil {
 		sh.logger.Error("failed to create server", zap.Error(err))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -126,11 +144,87 @@ func (sh *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		OwnerID:     claims.UserID,
 		IconURL:     req.Icon,
+		InviteCode:  inviteCode,
 		CreatedAt:   0, // TODO: Add timestamp
 	}
 
+	sh.logger.Info("server created successfully", 
+		zap.String("serverId", serverID),
+		zap.String("inviteCode", inviteCode),
+		zap.String("responseInviteCode", response.InviteCode))
+
+	// Serializar para debug
+	jsonBytes, _ := json.Marshal(response)
+	sh.logger.Info("response JSON", zap.String("json", string(jsonBytes)))
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+// JoinServerByInvite permite usuário entrar em servidor via código de convite
+func (sh *ServerHandler) JoinServerByInvite(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Extrair invite code da URL: /api/servers/join/{code}
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	
+	if len(parts) < 5 || parts[4] == "" {
+		http.Error(w, "invite code required", http.StatusBadRequest)
+		return
+	}
+	
+	inviteCode := parts[4]
+
+	// Buscar servidor pelo código de convite
+	server, err := sh.db.GetServerByInviteCode(inviteCode)
+	if err != nil {
+		sh.logger.Error("failed to get server by invite code", zap.Error(err))
+		http.Error(w, "invalid invite code", http.StatusNotFound)
+		return
+	}
+
+	serverID := server["server_id"].(string)
+
+	// Verificar se usuário já é membro
+	isMember, err := sh.db.IsServerMember(serverID, claims.UserID)
+	if err != nil {
+		sh.logger.Error("failed to check server membership", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if isMember {
+		http.Error(w, "already a member of this server", http.StatusConflict)
+		return
+	}
+
+	// Adicionar usuário como membro
+	err = sh.db.AddServerMember(serverID, claims.UserID, "member")
+	if err != nil {
+		sh.logger.Error("failed to add server member", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	sh.logger.Info("user joined server", 
+		zap.String("userId", claims.UserID), 
+		zap.String("serverId", serverID),
+		zap.String("inviteCode", inviteCode))
+
+	response := ServerResponse{
+		ID:          serverID,
+		Name:        server["name"].(string),
+		Description: server["description"].(string),
+		OwnerID:     server["owner_id"].(string),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 

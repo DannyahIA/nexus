@@ -270,10 +270,14 @@ func (gh *GroupHandler) JoinGroup(w http.ResponseWriter, r *http.Request) {
 // generateInviteCode gera um código de convite aleatório
 func generateInviteCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	code := make([]byte, 8)
-	for i := range code {
-		code[i] = chars[time.Now().UnixNano()%int64(len(chars))]
-		time.Sleep(1 * time.Nanosecond)
+	const codeLength = 8
+	
+	code := make([]byte, codeLength)
+	for i := 0; i < codeLength; i++ {
+		// Usar UUID para gerar bytes aleatórios
+		randomUUID := uuid.Must(uuid.NewV4())
+		randomByte := randomUUID.Bytes()[i % 16]
+		code[i] = chars[int(randomByte) % len(chars)]
 	}
 	return string(code)
 }

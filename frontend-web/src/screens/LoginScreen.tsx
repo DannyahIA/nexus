@@ -19,7 +19,7 @@ export default function LoginScreen() {
 
     try {
       await login(username, password)
-      navigate('/chat')
+      navigate('/home')
     } catch (err) {
       setError('Failed to login. Please check your credentials.')
     } finally {

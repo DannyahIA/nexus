@@ -39,6 +39,9 @@ export class WebSocketService {
   private reconnectDelay = 3000
   private isConnecting = false
   private subscribedChannels = new Set<string>()
+  private heartbeatInterval: NodeJS.Timeout | null = null
+  private reconnectTimeout: NodeJS.Timeout | null = null
+  private eventListeners: Map<string, Set<Function>> = new Map()
 
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
@@ -64,6 +67,9 @@ export class WebSocketService {
         this.reconnectAttempts = 0
         this.isConnecting = false
         
+        // Iniciar heartbeat
+        this.startHeartbeat()
+        
         // Reinscrever em canais após reconexão
         this.subscribedChannels.forEach(channelId => {
           this.subscribeToChannel(channelId)
@@ -84,9 +90,10 @@ export class WebSocketService {
         this.isConnecting = false
       }
 
-      this.ws.onclose = () => {
-        console.log('WebSocket closed')
+      this.ws.onclose = (event) => {
+        console.log('WebSocket closed', event.code, event.reason)
         this.isConnecting = false
+        this.stopHeartbeat()
         this.reconnect()
       }
     } catch (error) {
@@ -95,7 +102,12 @@ export class WebSocketService {
     }
   }
 
-  private handleMessage(wsMsg: WebSocketMessage) {
+  private handleMessage(wsMsg: any) {
+    console.log('📨 WebSocket message received:', wsMsg.type, wsMsg)
+    
+    // Emitir evento customizado para listeners
+    this.emit(wsMsg.type, wsMsg)
+
     switch (wsMsg.type) {
       case 'message':
         if (wsMsg.data) {
@@ -129,12 +141,47 @@ export class WebSocketService {
         }
         break
 
+      // WebRTC Signaling
+      case 'voice:offer':
+      case 'voice:answer':
+      case 'voice:ice-candidate':
+      case 'voice:user-joined':
+      case 'voice:user-left':
+      case 'voice:mute-status':
+      case 'voice:video-status':
+        // Eventos WebRTC são tratados pelos listeners
+        break
+
       default:
         console.log('Unknown message type:', wsMsg.type)
     }
   }
 
+  private startHeartbeat() {
+    // Limpar heartbeat anterior se existir
+    this.stopHeartbeat()
+    
+    // Enviar ping a cada 30 segundos (metade do timeout do servidor)
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.send({ type: 'ping' as any })
+      }
+    }, 30000)
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
+  }
+
   private reconnect() {
+    // Limpar timeout anterior
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached')
       return
@@ -145,7 +192,7 @@ export class WebSocketService {
       `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
     )
 
-    setTimeout(() => {
+    this.reconnectTimeout = setTimeout(() => {
       this.connect()
     }, this.reconnectDelay)
   }
@@ -234,7 +281,7 @@ export class WebSocketService {
   }
 
   // Enviar mensagem WebSocket genérica
-  private send(message: WebSocketMessage) {
+  send(message: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message))
     } else {
@@ -242,12 +289,46 @@ export class WebSocketService {
     }
   }
 
+  // Event emitter para WebRTC e outros eventos customizados
+  on(event: string, callback: Function) {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set())
+    }
+    this.eventListeners.get(event)!.add(callback)
+    console.log(`📝 Registered listener for event: ${event}, total listeners: ${this.eventListeners.get(event)!.size}`)
+  }
+
+  off(event: string, callback: Function) {
+    const callbacks = this.eventListeners.get(event)
+    if (callbacks) {
+      callbacks.delete(callback)
+    }
+  }
+
+  private emit(event: string, data?: any) {
+    const callbacks = this.eventListeners.get(event)
+    console.log(`🔔 Emitting event: ${event}, listeners: ${callbacks?.size || 0}`)
+    if (callbacks) {
+      callbacks.forEach(callback => callback(data))
+    } else {
+      console.warn(`⚠️ No listeners registered for event: ${event}`)
+    }
+  }
+
   disconnect() {
+    this.stopHeartbeat()
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
     this.subscribedChannels.clear()
+    this.reconnectAttempts = 0
+    // NÃO limpar eventListeners aqui - eles devem persistir entre reconexões
+    // this.eventListeners.clear()
   }
 }
 

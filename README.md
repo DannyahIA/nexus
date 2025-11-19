@@ -563,6 +563,8 @@ MIT © 2025 Nexus
 - [x] Date separators in chat
 - [x] Message context menu (edit, delete, reply)
 - [x] Infinite scroll with load more
+- [x] Fixed duplicate message display bug
+- [x] Optimistic UI updates
 
 #### Servers & Channels
 - [x] Server (group) creation and management
@@ -589,15 +591,46 @@ MIT © 2025 Nexus
 - [x] API client with Axios
 - [x] WebSocket client integration
 
+#### Voice & Video
+- [x] WebRTC service implementation
+- [x] Peer-to-peer connection setup
+- [x] ICE candidate exchange
+- [x] Offer/Answer signaling via WebSocket
+- [x] Local media stream capture (audio/video)
+- [x] Remote stream handling
+- [x] Mute/unmute microphone
+- [x] Enable/disable video
+- [x] Screen sharing support
+- [x] STUN server integration
+
+#### Friends & Direct Messages
+- [x] Friend request system
+- [x] Friend list management
+- [x] Accept/decline friend requests
+- [x] Direct message channels (DMs)
+- [x] Friend online status
+- [x] DM channel creation
+- [x] Automatic DM creation on friend accept
+- [x] Friend list with online/offline status
+- [x] DM header with user avatar and status
+
+#### Server Management
+- [x] Server settings
+- [x] Server invites
+  - [x] Invite code generation (8-character codes)
+  - [x] Invite link sharing
+  - [x] Join server via invite code
+  - [x] Invite modal with copy-to-clipboard
+  - [x] Invite button in chat header
+
 ### 🚧 In Progress
 
 #### Voice & Video
-- [ ] Voice channels
+- [ ] Voice channels UI
 - [ ] Voice calling (1-on-1)
 - [ ] Group voice calls
 - [ ] Video calling (1-on-1)
 - [ ] Group video calls
-- [ ] Screen sharing
 - [ ] WebRTC SFU implementation with Pion
 - [ ] TURN server integration (coturn)
 - [ ] Audio/video quality controls
@@ -629,14 +662,10 @@ MIT © 2025 Nexus
 - [ ] Sprint/milestone planning
 
 #### Friends & Direct Messages
-- [ ] Friend request system
-- [ ] Friend list management
-- [ ] Accept/decline friend requests
 - [ ] Block/unblock users
-- [ ] Direct message channels (DMs)
 - [ ] Group DMs
-- [ ] Friend online status
 - [ ] Friend activity status
+- [ ] Friend nicknames
 
 #### Rich Messaging Features
 - [ ] Message replies/threads
@@ -682,11 +711,8 @@ MIT © 2025 Nexus
 - [ ] Audit log for permissions
 
 #### Server Management
-- [ ] Server settings
-- [ ] Server invites
-  - [ ] Invite code generation
+- [x] Server invites
   - [ ] Invite expiration
-  - [ ] Invite link sharing
   - [ ] Invite usage tracking
 - [ ] Server discovery
 - [ ] Server categories
@@ -786,4 +812,4 @@ MIT © 2025 Nexus
 
 **Made with ❤️ by [Dannyah](https://github.com/DannyahIA)**
 
-Last updated: November 14, 2025
+Last updated: November 18, 2025

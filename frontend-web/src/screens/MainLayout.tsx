@@ -2,9 +2,12 @@ import { useEffect } from 'react'
 import { Outlet, useParams, useNavigate } from 'react-router-dom'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelList from '../components/ChannelList'
+import VoiceStatus from '../components/VoiceStatus'
 import { useServerStore } from '../store/serverStore'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
+import { useVoiceStore } from '../store/voiceStore'
+import { webrtcService } from '../services/webrtc'
 import { api } from '../services/api'
 import { wsService } from '../services/websocket'
 
@@ -25,6 +28,16 @@ export default function MainLayout() {
   
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
+  
+  // Voice state
+  const isConnected = useVoiceStore((state) => state.isConnected)
+  const currentChannelName = useVoiceStore((state) => state.currentChannelName)
+  const setDisconnected = useVoiceStore((state) => state.setDisconnected)
+  
+  const handleDisconnectVoice = () => {
+    webrtcService.leaveVoiceChannel()
+    setDisconnected()
+  }
 
   useEffect(() => {
     // Verificar autenticação
@@ -136,6 +149,14 @@ export default function MainLayout() {
               </button>
             ))}
           </div>
+          
+          {/* Voice Status */}
+          {isConnected && currentChannelName && (
+            <VoiceStatus
+              channelName={currentChannelName}
+              onDisconnect={handleDisconnectVoice}
+            />
+          )}
         </div>
       )}
 
