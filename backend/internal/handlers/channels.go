@@ -178,3 +178,49 @@ func (ch *ChannelHandler) DeleteChannel(w http.ResponseWriter, r *http.Request) 
 	ch.logger.Info("channel deleted", zap.String("id", channelID))
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// UpdateChannel atualiza um canal
+func (ch *ChannelHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	channelID := r.URL.Query().Get("id")
+	if channelID == "" {
+		http.Error(w, "channel id required", http.StatusBadRequest)
+		return
+	}
+
+	var req ChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "channel name is required", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: Verificar se o usuário tem permissão para atualizar
+	err := ch.db.UpdateChannel(channelID, req.Name, req.Description)
+	if err != nil {
+		ch.logger.Error("failed to update channel", zap.Error(err), zap.String("id", channelID))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	response := ChannelResponse{
+		ID:          channelID,
+		Name:        req.Name,
+		Description: req.Description,
+		Type:        req.Type,
+	}
+
+	ch.logger.Info("channel updated", zap.String("id", channelID), zap.String("name", req.Name))
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}

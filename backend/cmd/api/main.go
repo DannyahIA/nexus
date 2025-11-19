@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,7 +21,9 @@ import (
 func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Credentials", "false")
+	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
 // corsMiddleware adiciona headers CORS a todas as requisições
@@ -82,6 +85,8 @@ func main() {
 	channelHandler := handlers.NewChannelHandler(logger, db)
 	messageHandler := handlers.NewMessageHandler(logger, db)
 	taskHandler := handlers.NewTaskHandler(logger, db)
+	serverHandler := handlers.NewServerHandler(logger, db)
+	friendHandler := handlers.NewFriendHandler(logger, db)
 
 	// Setup rotas HTTP
 	mux := http.NewServeMux()
@@ -119,6 +124,8 @@ func main() {
 			}
 		case http.MethodPost:
 			channelHandler.CreateChannel(w, r)
+		case http.MethodPut, http.MethodPatch:
+			channelHandler.UpdateChannel(w, r)
 		case http.MethodDelete:
 			channelHandler.DeleteChannel(w, r)
 		default:
@@ -201,6 +208,114 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})))
+
+	// Rotas de servidores (protegidas)
+	mux.HandleFunc("/api/servers", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		
+		// Aplicar middleware de auth
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				serverHandler.GetServers(w, r)
+			case http.MethodPost:
+				serverHandler.CreateServer(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	// Rota para operações específicas de servidor (protegida)
+	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+
+		// Aplicar middleware de auth
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			
+			// Verifica se é /api/servers/{id}/channels
+			if strings.HasSuffix(path, "/channels") && r.Method == http.MethodGet {
+				serverHandler.GetServerChannels(w, r)
+			} else if r.Method == http.MethodPut || r.Method == http.MethodPatch {
+				// Atualização de servidor /api/servers/{id}
+				serverHandler.UpdateServer(w, r)
+			} else if r.Method == http.MethodDelete {
+				// Deletar servidor /api/servers/{id}
+				serverHandler.DeleteServer(w, r)
+			} else {
+				http.Error(w, "not found", http.StatusNotFound)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	// Rota para solicitações de amizade (protegida) - DEVE VIR ANTES DE /api/friends
+	mux.HandleFunc("/api/friends/requests", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		// Aplicar middleware de auth
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				// Por enquanto retorna lista vazia
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte("[]"))
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	// Rotas de amigos (protegidas)
+	mux.HandleFunc("/api/friends", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		// Aplicar middleware de auth
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				friendHandler.GetFriends(w, r)
+			case http.MethodPost:
+				friendHandler.SendFriendRequest(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
+
+	// Rota para DMs/Mensagens diretas (protegida)
+	mux.HandleFunc("/api/dms", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		
+		// Aplicar middleware de auth
+		authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				// Por enquanto retorna lista vazia de DMs
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte("[]"))
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP(w, r)
+	})
 
 	// Iniciar servidor HTTP
 	port := os.Getenv("API_PORT")

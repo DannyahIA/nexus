@@ -1,39 +1,80 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useChatStore } from '../store/chatStore'
+import { useServerStore } from '../store/serverStore'
+import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
 import { wsService } from '../services/websocket'
 import { api } from '../services/api'
-import { Send, Hash, Menu, LogOut, Settings, CheckSquare, Plus } from 'lucide-react'
-import CreateChannelModal from '../components/CreateChannelModal'
+import { Send, Hash, Users } from 'lucide-react'
+import MessageList from '../components/MessageList'
+import { useInfiniteMessages } from '../hooks/useInfiniteMessages'
 
 export default function ChatScreen() {
-  const { channelId } = useParams()
-  const navigate = useNavigate()
+  const { channelId, serverId } = useParams()
   const [message, setMessage] = useState('')
-  const [showSidebar, setShowSidebar] = useState(true)
-  const [showCreateChannel, setShowCreateChannel] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<number | null>(null)
 
-  const channels = useChatStore((state) => state.channels)
-  const messages = useChatStore((state) => state.messages)
-  const activeChannelId = useChatStore((state) => state.activeChannelId)
   const setActiveChannel = useChatStore((state) => state.setActiveChannel)
-  const setChannels = useChatStore((state) => state.setChannels)
-  const setMessages = useChatStore((state) => state.setMessages)
   const user = useAuthStore((state) => state.user)
-  const logout = useAuthStore((state) => state.logout)
+  
+  // Server data
+  const serverChannels = useServerStore((state) => state.serverChannels)
+  const servers = useServerStore((state) => state.servers)
+  
+  // DM data
+  const dmChannels = useFriendsStore((state) => state.dmChannels)
 
-  const currentChannel = channels.find((c) => c.id === (channelId || activeChannelId))
-  const currentMessages = messages[channelId || activeChannelId || ''] || []
+  // Determinar o tipo de canal e dados
+  const isDM = !serverId
+  const channels = serverId ? (serverChannels[serverId] || []) : []
+  const currentChannel = isDM 
+    ? dmChannels.find(dm => dm.id === channelId)
+    : channels.find(c => c.id === channelId)
+
+  // Obter servidor atual para verificar permissões
+  const currentServer = serverId ? servers.find(s => s.id === serverId) : null
+  const isServerOwner = currentServer?.ownerId === user?.id
+  const isServerAdmin = false // TODO: Implementar sistema de roles/admin
+
+  // Hook para mensagens com scroll infinito
+  const { messages, hasMore, loading, loadMore, reset, addMessage, updateMessage, removeMessage } = useInfiniteMessages(channelId)
+
+  // Handlers para ações de mensagem
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!channelId) return
+    
+    try {
+      await api.deleteMessage(channelId, messageId)
+      removeMessage(messageId)
+      // TODO: Broadcast via WebSocket para outros usuários quando o backend suportar
+    } catch (error) {
+      console.error('Failed to delete message:', error)
+      alert('Erro ao deletar mensagem')
+    }
+  }
+
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    if (!channelId) return
+    
+    try {
+      await api.updateMessage(channelId, messageId, newContent)
+      updateMessage(messageId, newContent)
+      // TODO: Broadcast via WebSocket para outros usuários quando o backend suportar
+    } catch (error) {
+      console.error('Failed to edit message:', error)
+      alert('Erro ao editar mensagem')
+    }
+  }
+
+  const handleReplyMessage = (messageId: string) => {
+    // TODO: Implementar sistema de reply
+    console.log('Reply to message:', messageId)
+  }
 
   useEffect(() => {
     // Connect WebSocket
     wsService.connect()
-
-    // Load channels
-    loadChannels()
 
     return () => {
       wsService.disconnect()
@@ -42,44 +83,61 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (channelId) {
+      reset() // Limpar mensagens anteriores
       setActiveChannel(channelId)
-      loadMessages(channelId)
       
       // Inscrever no canal via WebSocket
       wsService.subscribeToChannel(channelId)
       
-      // Desinscrever do canal anterior ao trocar
+      // Carregar primeira página após reset
+      setTimeout(() => {
+        loadMore()
+      }, 100)
+      
+      // Desinscrever ao trocar de canal
       return () => {
         wsService.unsubscribeFromChannel(channelId)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId])
 
+  // Listener para novas mensagens via WebSocket
   useEffect(() => {
-    scrollToBottom()
-  }, [currentMessages])
+    if (!channelId) return
 
-  const loadChannels = async () => {
-    try {
-      const response = await api.getChannels()
-      setChannels(response.data)
-    } catch (error) {
-      console.error('Failed to load channels:', error)
+    // Criar handler para novas mensagens
+    const handleNewMessage = (msg: any) => {
+      // Adicionar mensagem apenas se for do canal ativo
+      if (msg.channelId === channelId) {
+        console.log('📨 Nova mensagem via WebSocket:', msg)
+        addMessage({
+          id: msg.id,
+          channelId: msg.channelId,
+          userId: msg.userId,
+          username: msg.username,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          avatar: msg.avatar,
+        })
+      }
     }
-  }
 
-  const loadMessages = async (channelId: string) => {
-    try {
-      const response = await api.getMessages(channelId)
-      setMessages(channelId, response.data)
-    } catch (error) {
-      console.error('Failed to load messages:', error)
+    // Subscrever no chatStore para receber mensagens
+    const unsubscribe = useChatStore.subscribe((state) => {
+      const channelMessages = state.messages[channelId] || []
+      const latestMessage = channelMessages[channelMessages.length - 1]
+      
+      // Se há uma nova mensagem que ainda não temos
+      if (latestMessage && !messages.find(m => m.id === latestMessage.id)) {
+        handleNewMessage(latestMessage)
+      }
+    })
+
+    return () => {
+      unsubscribe()
     }
-  }
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  }, [channelId, addMessage, messages])
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -108,7 +166,7 @@ export default function ChatScreen() {
     }
   }
 
-  const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const newMessage = e.target.value
     setMessage(newMessage)
 
@@ -128,166 +186,97 @@ export default function ChatScreen() {
     }, 3000)
   }
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
+  // Nome do canal para exibição
+  const channelName = currentChannel 
+    ? ('name' in currentChannel 
+        ? currentChannel.name 
+        : currentChannel.type === 'dm' 
+          ? currentChannel.participants[0]?.username || 'Direct Message'
+          : currentChannel.name || 'Group DM')
+    : ''
 
-  const handleCreateChannel = async (data: { name: string; description: string; type: string }) => {
-    try {
-      const response = await api.createChannel(data)
-      // Recarregar canais
-      loadChannels()
-      // Navegar para o novo canal
-      if (response.data?.id) {
-        navigate(`/chat/${response.data.id}`)
-      }
-    } catch (error) {
-      console.error('Failed to create channel:', error)
-    }
+  // Ícone do canal (Hash para servidor, Users para DM)
+  const ChannelIcon = isDM ? Users : Hash
+
+  // Retorno antecipado se não há channelId (APÓS todos os hooks)
+  if (!channelId) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-dark-800">
+        <div className="text-center text-dark-400">
+          <Hash className="w-16 h-16 mx-auto mb-4" />
+          <h3 className="text-xl font-medium mb-2">Selecione um canal</h3>
+          <p className="text-sm">Escolha um canal na barra lateral para começar a conversar.</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="flex h-screen bg-dark-900 text-white">
-      {/* Sidebar */}
-      <div
-        className={`${
-          showSidebar ? 'w-64' : 'w-0'
-        } bg-dark-800 border-r border-dark-700 flex flex-col transition-all duration-300 overflow-hidden`}
-      >
-        {/* User Profile */}
-        <div className="p-4 border-b border-dark-700">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
-              {user?.username?.charAt(0).toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium truncate">{user?.username}</p>
-              <p className="text-xs text-dark-400 truncate">{user?.email}</p>
-            </div>
+    <div className="flex-1 flex flex-col overflow-hidden" style={{ maxWidth: '100%', width: '100%' }}>
+      {/* Header */}
+      <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4 gap-4">
+        {currentChannel && (
+          <div className="flex items-center gap-2">
+            <ChannelIcon className="w-5 h-5 text-dark-400" />
+            <h2 className="font-semibold">{channelName}</h2>
+            {!isDM && 'description' in currentChannel && currentChannel.description && (
+              <span className="text-sm text-dark-400">- {currentChannel.description}</span>
+            )}
           </div>
-        </div>
-
-        {/* Channels List */}
-        <div className="flex-1 overflow-y-auto p-2">
-          <div className="mb-4">
-            <div className="flex items-center justify-between px-2 mb-2">
-              <h3 className="text-xs font-semibold text-dark-400 uppercase">
-                Channels
-              </h3>
-              <button
-                onClick={() => setShowCreateChannel(true)}
-                className="p-1 hover:bg-dark-700 rounded text-dark-400 hover:text-white transition-colors"
-                title="Create Channel"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            {channels.map((channel) => (
-              <button
-                key={channel.id}
-                onClick={() => navigate(`/chat/${channel.id}`)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg mb-1 transition-colors ${
-                  channel.id === (channelId || activeChannelId)
-                    ? 'bg-primary-600 text-white'
-                    : 'text-dark-300 hover:bg-dark-700'
-                }`}
-              >
-                <Hash className="w-4 h-4" />
-                <span className="truncate">{channel.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom Actions */}
-        <div className="p-2 border-t border-dark-700">
-          <button
-            onClick={() => navigate('/tasks')}
-            className="w-full flex items-center gap-2 px-3 py-2 text-dark-300 hover:bg-dark-700 rounded-lg mb-1 transition-colors"
-          >
-            <CheckSquare className="w-4 h-4" />
-            <span>Tasks</span>
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-dark-700 rounded-lg transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Logout</span>
-          </button>
-        </div>
+        )}
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4 gap-4">
-          <button
-            onClick={() => setShowSidebar(!showSidebar)}
-            className="p-2 hover:bg-dark-700 rounded-lg transition-colors"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          {currentChannel && (
-            <div className="flex items-center gap-2">
-              <Hash className="w-5 h-5 text-dark-400" />
-              <h2 className="font-semibold">{currentChannel.name}</h2>
-              {currentChannel.description && (
-                <span className="text-sm text-dark-400">- {currentChannel.description}</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {currentMessages.map((msg) => (
-            <div key={msg.id} className="flex gap-3">
-              <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
-                {msg.username.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="font-medium">{msg.username}</span>
-                  <span className="text-xs text-dark-400">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-                <p className="text-dark-200 break-words">{msg.content}</p>
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="p-4 border-t border-dark-700">
-          <form onSubmit={handleSendMessage} className="flex gap-2">
-            <input
-              type="text"
-              value={message}
-              onChange={handleMessageChange}
-              placeholder={`Message ${currentChannel?.name || ''}`}
-              className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent"
-            />
-            <button
-              type="submit"
-              disabled={!message.trim()}
-              className="px-6 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          </form>
-        </div>
-      </div>
-
-      {/* Create Channel Modal */}
-      <CreateChannelModal
-        isOpen={showCreateChannel}
-        onClose={() => setShowCreateChannel(false)}
-        onCreate={handleCreateChannel}
+      {/* Messages */}
+      <MessageList
+        messages={messages}
+        loading={loading}
+        hasMore={hasMore}
+        onLoadMore={loadMore}
+        currentUserId={user?.id || ''}
+        isServerOwner={isServerOwner}
+        isServerAdmin={isServerAdmin}
+        onDeleteMessage={handleDeleteMessage}
+        onEditMessage={handleEditMessage}
+        onReplyMessage={handleReplyMessage}
       />
+
+      {/* Input */}
+      <div className="p-4 border-t border-dark-700">
+        <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
+          <textarea
+            value={message}
+            onChange={(e) => {
+              handleMessageChange(e)
+              // Auto-resize
+              e.target.style.height = 'auto'
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSendMessage(e as any)
+              }
+            }}
+            placeholder={`Message ${channelName}`}
+            maxLength={2000}
+            className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent resize-none overflow-y-auto min-h-[48px] max-h-[120px]"
+            style={{ height: '48px' }}
+          />
+          <button
+            type="submit"
+            disabled={!message.trim()}
+            className="px-6 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 min-h-[48px]"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </form>
+        <div className="flex justify-between items-center text-xs text-dark-500 mt-2">
+          <span>Pressione Enter para enviar, Shift+Enter para quebrar linha</span>
+          <span className={`${message.length > 1800 ? 'text-yellow-500' : ''} ${message.length >= 2000 ? 'text-red-500' : ''}`}>
+            {message.length}/2000
+          </span>
+        </div>
+      </div>
     </div>
   )
 }

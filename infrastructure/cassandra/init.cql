@@ -97,3 +97,29 @@ CREATE TABLE IF NOT EXISTS voice_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_voice_channel ON voice_sessions(channel_id);
 CREATE INDEX IF NOT EXISTS idx_voice_user ON voice_sessions(user_id);
+
+-- Groups table (used for servers/groups)
+CREATE TABLE IF NOT EXISTS groups (
+  group_id uuid PRIMARY KEY,
+  name text,
+  description text,
+  icon_url text,
+  owner_id uuid,
+  type text, -- 'server', 'dm', 'group_dm'
+  created_at timestamp,
+  updated_at timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_owner ON groups(owner_id);
+CREATE INDEX IF NOT EXISTS idx_group_type ON groups(type);
+
+-- Group members table
+CREATE TABLE IF NOT EXISTS group_members (
+  group_id uuid,
+  user_id uuid,
+  role text, -- 'owner', 'admin', 'member'
+  joined_at timestamp,
+  PRIMARY KEY (group_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_member_user ON group_members(user_id);

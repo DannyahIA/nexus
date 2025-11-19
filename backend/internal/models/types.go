@@ -18,12 +18,64 @@ type User struct {
 
 // Channel representa um canal de comunicação
 type Channel struct {
-	ID        uuid.UUID
-	Name      string
-	Type      string // "text", "voice", "video"
-	OwnerID   uuid.UUID
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          uuid.UUID
+	GroupID     *uuid.UUID // NULL para DMs
+	Name        string
+	Type        string // "text", "voice", "video", "dm", "group_dm"
+	Description string
+	OwnerID     uuid.UUID
+	IsPrivate   bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// Group representa um servidor/grupo
+type Group struct {
+	ID          uuid.UUID
+	Name        string
+	Description string
+	OwnerID     uuid.UUID
+	IconURL     string
+	IsPublic    bool
+	InviteCode  string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// GroupMember representa a associação de um usuário a um grupo
+type GroupMember struct {
+	GroupID   uuid.UUID
+	UserID    uuid.UUID
+	Role      string // "owner", "admin", "moderator", "member"
+	Nickname  string
+	JoinedAt  time.Time
+}
+
+// ChannelMember representa a associação de um usuário a um canal
+type ChannelMember struct {
+	ChannelID  uuid.UUID
+	UserID     uuid.UUID
+	Role       string // "owner", "admin", "member"
+	LastReadAt *time.Time
+	JoinedAt   time.Time
+}
+
+// FriendRequest representa uma solicitação de amizade
+type FriendRequest struct {
+	FromUserID uuid.UUID
+	ToUserID   uuid.UUID
+	Status     string // "pending", "accepted", "rejected", "blocked"
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// Friend representa uma amizade estabelecida
+type Friend struct {
+	UserID      uuid.UUID
+	FriendID    uuid.UUID
+	Nickname    string
+	DMChannelID uuid.UUID
+	AddedAt     time.Time
 }
 
 // Message representa uma mensagem

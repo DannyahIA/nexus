@@ -11,17 +11,22 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0', // Expõe na rede local
     port: 3000,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
+    cors: true, // Habilita CORS para todas as origens
+    // Proxy só funciona para localhost. Para rede, desabilitar proxy
+    ...(!process.env.VITE_NETWORK_MODE && {
+      proxy: {
+        '/api': {
+          target: 'https://nexus-api.eclipsiasoftware.com',
+          changeOrigin: true,
+        },
+        '/ws': {
+          target: 'wss://nexus-ws.eclipsiasoftware.com',
+          ws: true,
+        },
       },
-      '/ws': {
-        target: 'ws://localhost:8080',
-        ws: true,
-      },
-    },
+    }),
   },
   build: {
     outDir: 'dist',

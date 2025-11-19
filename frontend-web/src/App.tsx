@@ -4,6 +4,8 @@ import LoginScreen from './screens/LoginScreen'
 import RegisterScreen from './screens/RegisterScreen'
 import ChatScreen from './screens/ChatScreen'
 import TasksScreen from './screens/TasksScreen'
+import HomeScreen from './screens/HomeScreen'
+import MainLayout from './screens/MainLayout'
 import { useAuthStore } from './store/authStore'
 
 const queryClient = new QueryClient({
@@ -27,23 +29,33 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginScreen />} />
           <Route path="/register" element={<RegisterScreen />} />
+          
+          {/* Discord-style routes with MainLayout */}
           <Route
-            path="/chat/:channelId?"
+            path="/"
             element={
               <PrivateRoute>
-                <ChatScreen />
+                <MainLayout />
               </PrivateRoute>
             }
-          />
-          <Route
-            path="/tasks/:channelId?"
-            element={
-              <PrivateRoute>
-                <TasksScreen />
-              </PrivateRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/chat" replace />} />
+          >
+            {/* Home view - Friends & DMs */}
+            <Route index element={<Navigate to="/home" replace />} />
+            <Route path="home" element={<HomeScreen />} />
+            
+            {/* DM routes */}
+            <Route path="dm/:channelId" element={<ChatScreen />} />
+            
+            {/* Server routes */}
+            <Route path="server/:serverId" element={<ChatScreen />} />
+            <Route path="server/:serverId/:channelId" element={<ChatScreen />} />
+            
+            {/* Tasks route (legacy support) */}
+            <Route path="tasks/:channelId?" element={<TasksScreen />} />
+          </Route>
+          
+          {/* Redirect old routes */}
+          <Route path="/chat/:channelId?" element={<Navigate to="/home" replace />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

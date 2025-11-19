@@ -28,7 +28,7 @@ export const useAuthStore = create<AuthState>()(
       login: async (username: string, password: string) => {
         try {
           // TODO: Implement actual API call
-          const response = await fetch('http://localhost:8000/api/auth/login', {
+          const response = await fetch('https://nexus-api.eclipsiasoftware.com/api/auth/login', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -54,7 +54,7 @@ export const useAuthStore = create<AuthState>()(
 
       register: async (email: string, username: string, password: string) => {
         try {
-          const response = await fetch('http://localhost:8000/api/auth/register', {
+          const response = await fetch('https://nexus-api.eclipsiasoftware.com/api/auth/register', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

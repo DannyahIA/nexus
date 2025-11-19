@@ -45,7 +45,7 @@ services:
     image: postgres:15-alpine
     container_name: nexus-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_DB=nexus_billing
       - POSTGRES_USER=nexus
@@ -73,6 +73,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # API Service usando Dockerfile otimizado
   api:
     build:
       context: ./backend
@@ -94,12 +95,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
+  # WebSocket Service usando Dockerfile otimizado
   websocket:
     build:
       context: ./backend
@@ -124,6 +121,15 @@ services:
 
 volumes:
   cassandra_data:
+    driver: local
   nats_data:
+    driver: local
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
+
+networks:
+  default:
+    name: nexus-network
+    driver: bridge
