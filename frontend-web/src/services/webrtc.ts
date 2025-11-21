@@ -30,6 +30,12 @@ class WebRTCService {
   private connectionStartTimes: Map<string, number> = new Map()
   private connectionEstablishedTimes: Map<string, number> = new Map()
   private iceCandidateTypes: Map<string, Set<string>> = new Map()
+  
+  // Reconnection tracking
+  private reconnectionAttempts: Map<string, number> = new Map()
+  private reconnectionTimeouts: Map<string, NodeJS.Timeout> = new Map()
+  private maxReconnectionAttempts: number = 3
+  private reconnectionBackoffs: number[] = [1000, 2000, 4000] // 1s, 2s, 4s
 
   constructor() {
     this.initializeICEServers()
@@ -179,6 +185,11 @@ class WebRTCService {
     this.connectionStartTimes.clear()
     this.connectionEstablishedTimes.clear()
     this.iceCandidateTypes.clear()
+    
+    // Clean up reconnection tracking
+    this.reconnectionTimeouts.forEach(timeout => clearTimeout(timeout))
+    this.reconnectionTimeouts.clear()
+    this.reconnectionAttempts.clear()
 
     // Notificar servidor
     if (this.currentChannelId) {
@@ -312,11 +323,10 @@ class WebRTCService {
         iceState: pc.iceConnectionState 
       })
       
+      // Trigger automatic reconnection on disconnected or failed state
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        // Only handle user left if we've exhausted TURN fallback
-        if (this.usingTURNOnly.get(userId) || pc.iceConnectionState === 'failed') {
-          this.handleUserLeft({ userId })
-        }
+        console.log(`⚠️ Connection ${pc.connectionState} for ${userId}, attempting reconnection`)
+        this.attemptReconnection(userId)
       }
     }
 
@@ -428,6 +438,136 @@ class WebRTCService {
       console.error('❌ TURN fallback failed for', userId, error)
       this.emit('turn-fallback-failed', { userId, error })
     }
+  }
+
+  /**
+   * Attempt automatic reconnection with exponential backoff
+   * Implements Requirements 5.1, 5.3
+   */
+  private attemptReconnection(userId: string): void {
+    // Check if already reconnecting
+    if (this.reconnectionTimeouts.has(userId)) {
+      console.log('⚠️ Already attempting reconnection for', userId)
+      return
+    }
+    
+    // Get current attempt count
+    const attempts = this.reconnectionAttempts.get(userId) || 0
+    
+    // Check if max attempts reached
+    if (attempts >= this.maxReconnectionAttempts) {
+      console.error(`❌ Max reconnection attempts (${this.maxReconnectionAttempts}) reached for ${userId}`)
+      this.emit('reconnection-failed', { userId, attempts })
+      
+      // Clean up
+      this.reconnectionAttempts.delete(userId)
+      this.handleUserLeft({ userId })
+      return
+    }
+    
+    // Calculate backoff delay
+    const delay = this.reconnectionBackoffs[attempts] || this.reconnectionBackoffs[this.reconnectionBackoffs.length - 1]
+    
+    console.log(`🔄 Scheduling reconnection attempt ${attempts + 1}/${this.maxReconnectionAttempts} for ${userId} in ${delay}ms`)
+    
+    // Emit reconnecting state
+    this.emit('reconnecting', { userId, attempt: attempts + 1, maxAttempts: this.maxReconnectionAttempts })
+    
+    // Schedule reconnection
+    const timeout = setTimeout(async () => {
+      try {
+        console.log(`🔄 Executing reconnection attempt ${attempts + 1} for ${userId}`)
+        
+        // Increment attempt counter
+        this.reconnectionAttempts.set(userId, attempts + 1)
+        
+        // Clear timeout reference
+        this.reconnectionTimeouts.delete(userId)
+        
+        // Check WebSocket connection first (Requirement 5.5)
+        if (!wsService || (wsService as any).ws?.readyState !== WebSocket.OPEN) {
+          console.warn('⚠️ WebSocket not connected, waiting for WebSocket reconnection before peer reconnection')
+          
+          // Wait for WebSocket to reconnect (with timeout)
+          const wsReconnectTimeout = 5000 // 5 seconds
+          const wsReconnectStart = Date.now()
+          
+          while ((wsService as any).ws?.readyState !== WebSocket.OPEN) {
+            if (Date.now() - wsReconnectStart > wsReconnectTimeout) {
+              throw new Error('WebSocket reconnection timeout')
+            }
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+          
+          console.log('✅ WebSocket reconnected, proceeding with peer reconnection')
+        }
+        
+        // Close existing connection
+        const existingPc = this.peerConnections.get(userId)
+        if (existingPc) {
+          existingPc.close()
+          this.peerConnections.delete(userId)
+        }
+        
+        // Stop monitoring old connection
+        connectionMonitor.stopMonitoring(userId)
+        
+        // Create new peer connection
+        const pc = await this.createPeerConnection(userId)
+        
+        // Create and send new offer with ICE restart
+        const offer = await pc.createOffer({ iceRestart: true })
+        await pc.setLocalDescription(offer)
+        
+        console.log('📤 Sending reconnection offer to', userId)
+        wsService.send({
+          type: 'voice:offer',
+          data: {
+            targetUserId: userId,
+            offer: offer,
+          }
+        })
+        
+        // Emit reconnection attempt event
+        this.emit('reconnection-attempted', { userId, attempt: attempts + 1 })
+        
+      } catch (error) {
+        console.error('❌ Reconnection attempt failed for', userId, error)
+        this.reconnectionTimeouts.delete(userId)
+        
+        // Try again if we haven't reached max attempts
+        if (attempts + 1 < this.maxReconnectionAttempts) {
+          this.attemptReconnection(userId)
+        } else {
+          this.emit('reconnection-failed', { userId, attempts: attempts + 1, error })
+          this.reconnectionAttempts.delete(userId)
+          this.handleUserLeft({ userId })
+        }
+      }
+    }, delay)
+    
+    this.reconnectionTimeouts.set(userId, timeout)
+  }
+
+  /**
+   * Manually trigger reconnection for a user
+   * Implements Requirements 5.3
+   */
+  public manualReconnect(userId: string): void {
+    console.log('🔄 Manual reconnection triggered for', userId)
+    
+    // Clear any existing reconnection state
+    const timeout = this.reconnectionTimeouts.get(userId)
+    if (timeout) {
+      clearTimeout(timeout)
+      this.reconnectionTimeouts.delete(userId)
+    }
+    
+    // Reset attempt counter
+    this.reconnectionAttempts.delete(userId)
+    
+    // Trigger reconnection
+    this.attemptReconnection(userId)
   }
 
   // Handler: Recebeu lista de usuários já conectados
@@ -578,6 +718,14 @@ class WebRTCService {
     this.connectionStartTimes.delete(data.userId)
     this.connectionEstablishedTimes.delete(data.userId)
     this.iceCandidateTypes.delete(data.userId)
+    
+    // Clean up reconnection tracking
+    const timeout = this.reconnectionTimeouts.get(data.userId)
+    if (timeout) {
+      clearTimeout(timeout)
+      this.reconnectionTimeouts.delete(data.userId)
+    }
+    this.reconnectionAttempts.delete(data.userId)
     
     this.emit('user-left', data)
   }

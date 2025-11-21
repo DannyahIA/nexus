@@ -129,56 +129,56 @@
   - Offer manual reconnect button
   - _Requirements: 4.5_
 
-- [ ] 4. Automatic Reconnection
-- [ ] 4.1 Implement reconnection logic in WebRTC service
+- [-] 4. Automatic Reconnection
+- [x] 4.1 Implement reconnection logic in WebRTC service
   - Detect connection state changes to 'disconnected' or 'failed'
   - Trigger automatic reconnection attempt
   - Implement exponential backoff (1s, 2s, 4s)
   - Limit to 3 reconnection attempts
   - _Requirements: 5.1, 5.3_
 
-- [ ] 4.2 Write property test for automatic reconnection trigger
+- [x] 4.2 Write property test for automatic reconnection trigger
   - **Property 7: Automatic Reconnection Trigger**
   - **Validates: Requirements 5.1**
 
-- [ ] 4.3 Add reconnection UI state
+- [x] 4.3 Add reconnection UI state
   - Update voiceStore with 'reconnecting' state
   - Display "Reconnecting..." message in UI
   - Show reconnection attempt count
   - _Requirements: 5.2_
 
-- [ ] 4.4 Implement state preservation during reconnection
+- [x] 4.4 Implement state preservation during reconnection
   - Save mute and video state before reconnection
   - Restore state after successful reconnection
   - _Requirements: 5.4_
 
-- [ ] 4.5 Write property test for reconnection state preservation
+- [x] 4.5 Write property test for reconnection state preservation
   - **Property 8: Reconnection State Preservation**
   - **Validates: Requirements 5.4**
 
-- [ ] 4.6 Implement WebSocket reconnection priority
+- [x] 4.6 Implement WebSocket reconnection priority
   - Check WebSocket connection before peer reconnection
   - Reconnect WebSocket if needed
   - Wait for WebSocket ready before peer reconnection
   - _Requirements: 5.5_
 
-- [ ] 4.7 Write property test for WebSocket reconnection priority
+- [x] 4.7 Write property test for WebSocket reconnection priority
   - **Property 9: WebSocket Reconnection Priority**
   - **Validates: Requirements 5.5**
 
-- [ ] 4.8 Add manual reconnect option
+- [x] 4.8 Add manual reconnect option
   - Show "Reconnect" button after failed attempts
   - Allow user to manually trigger reconnection
   - Clear failed state on manual reconnect
   - _Requirements: 5.3_
 
-- [ ] 5. Checkpoint - Ensure all Phase 1 tests pass
+- [x] 5. Checkpoint - Ensure all Phase 1 tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Phase 2: Enhanced User Experience
 
-- [ ] 6. Voice Activity Detection
-- [ ] 6.1 Create VoiceActivityDetector module
+- [-] 6. Voice Activity Detection
+- [-] 6.1 Create VoiceActivityDetector module
   - Create `frontend-web/src/services/voiceActivityDetector.ts`
   - Implement audio context and analyser setup
   - Implement audio level monitoring

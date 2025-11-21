@@ -6,6 +6,7 @@ interface VoiceState {
   isConnected: boolean
   currentChannelId: string | null
   currentChannelName: string | null
+  connectionState: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
   
   // Controles
   isMuted: boolean
@@ -18,9 +19,13 @@ interface VoiceState {
   // Connection quality tracking
   connectionQualities: Map<string, ConnectionQuality>
   
+  // Reconnection tracking
+  reconnectingUsers: Map<string, { attempt: number, maxAttempts: number }>
+  
   // Actions
   setConnected: (channelId: string, channelName: string) => void
   setDisconnected: () => void
+  setConnectionState: (state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected') => void
   setMuted: (muted: boolean) => void
   setVideoEnabled: (enabled: boolean) => void
   setScreenSharing: (sharing: boolean) => void
@@ -28,6 +33,8 @@ interface VoiceState {
   removeVoiceUser: (userId: string) => void
   updateVoiceUser: (userId: string, updates: Partial<VoiceUser>) => void
   setConnectionQuality: (userId: string, quality: ConnectionQuality) => void
+  setUserReconnecting: (userId: string, attempt: number, maxAttempts: number) => void
+  clearUserReconnecting: (userId: string) => void
 }
 
 export interface VoiceUser {
@@ -42,17 +49,20 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   isConnected: false,
   currentChannelId: null,
   currentChannelName: null,
+  connectionState: 'idle',
   isMuted: false,
   isVideoEnabled: false,
   isScreenSharing: false,
   voiceUsers: [],
   connectionQualities: new Map(),
+  reconnectingUsers: new Map(),
   
   setConnected: (channelId, channelName) =>
     set({
       isConnected: true,
       currentChannelId: channelId,
       currentChannelName: channelName,
+      connectionState: 'connected',
     }),
   
   setDisconnected: () =>
@@ -60,12 +70,16 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       isConnected: false,
       currentChannelId: null,
       currentChannelName: null,
+      connectionState: 'disconnected',
       isMuted: false,
       isVideoEnabled: false,
       isScreenSharing: false,
       voiceUsers: [],
       connectionQualities: new Map(),
+      reconnectingUsers: new Map(),
     }),
+  
+  setConnectionState: (state) => set({ connectionState: state }),
   
   setMuted: (muted) => set({ isMuted: muted }),
   
@@ -89,9 +103,12 @@ export const useVoiceStore = create<VoiceState>((set) => ({
     set((state) => {
       const newQualities = new Map(state.connectionQualities)
       newQualities.delete(userId)
+      const newReconnecting = new Map(state.reconnectingUsers)
+      newReconnecting.delete(userId)
       return {
         voiceUsers: state.voiceUsers.filter((u) => u.userId !== userId),
         connectionQualities: newQualities,
+        reconnectingUsers: newReconnecting,
       }
     }),
   
@@ -108,6 +125,26 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       newQualities.set(userId, quality)
       return {
         connectionQualities: newQualities,
+      }
+    }),
+  
+  setUserReconnecting: (userId, attempt, maxAttempts) =>
+    set((state) => {
+      const newReconnecting = new Map(state.reconnectingUsers)
+      newReconnecting.set(userId, { attempt, maxAttempts })
+      return {
+        reconnectingUsers: newReconnecting,
+        connectionState: 'reconnecting',
+      }
+    }),
+  
+  clearUserReconnecting: (userId) =>
+    set((state) => {
+      const newReconnecting = new Map(state.reconnectingUsers)
+      newReconnecting.delete(userId)
+      return {
+        reconnectingUsers: newReconnecting,
+        connectionState: newReconnecting.size > 0 ? 'reconnecting' : 'connected',
       }
     }),
 }))

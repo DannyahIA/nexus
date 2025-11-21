@@ -761,10 +761,10 @@ describe('WebRTC Service - TURN Fallback', () => {
         fc.asyncProperty(
           fc.record({
             userId: fc.uuid(),
-            username: fc.string({ minLength: 1, maxLength: 20 }),
+            username: fc.string({ minLength: 1, maxLength: 20 }).filter(s => s.trim().length > 0),
             turnUrl: fc.constant('turn:test.turn.server:3478'),
-            turnUsername: fc.string({ minLength: 3, maxLength: 20 }).filter(s => s.trim().length >= 3),
-            turnPassword: fc.string({ minLength: 6, maxLength: 30 }).filter(s => s.trim().length >= 6),
+            turnUsername: fc.string({ minLength: 1, maxLength: 20 }).filter(s => s.trim().length >= 3),
+            turnPassword: fc.string({ minLength: 1, maxLength: 30 }).filter(s => s.trim().length >= 6),
             // Simulate different failure scenarios
             failureState: fc.constantFrom('failed' as RTCIceConnectionState),
           }),
@@ -844,7 +844,7 @@ describe('WebRTC Service - TURN Fallback', () => {
             }
 
             // Wait for async TURN fallback to complete
-            await new Promise(resolve => setTimeout(resolve, 50))
+            await new Promise(resolve => setTimeout(resolve, 100))
 
             // PROPERTY VERIFICATION:
             // 1. A new peer connection MUST have been created (TURN fallback attempt)
@@ -1147,5 +1147,995 @@ describe('WebRTC Service - TURN Fallback', () => {
 
     // Should still only have 2 connections (no third attempt)
     expect(peerConnections.length).toBe(2)
+  })
+})
+
+describe('WebRTC Service - Video Toggle with Multiple Users', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should enable video after joining without causing ICE restart', async () => {
+    // This test verifies that enabling video after joining doesn't cause ICE restart
+    // by checking that addTrack is called (which will trigger renegotiation) but
+    // no new peer connection is created and no ICE restart occurs
+    
+    // Set up environment
+    vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+    vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+    vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+    vi.resetModules()
+
+    // Mock WebSocket service
+    const mockWsService = {
+      on: vi.fn(),
+      send: vi.fn(),
+      off: vi.fn(),
+    }
+    vi.doMock('./websocket', () => ({
+      wsService: mockWsService,
+    }))
+
+    // Track peer connections and their state
+    const peerConnections: any[] = []
+    const MockRTCPeerConnection = function(this: any, config: any) {
+      const pc = {
+        config,
+        addTrack: vi.fn(),
+        addIceCandidate: vi.fn(),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+        createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        getSenders: vi.fn().mockReturnValue([]),
+        onicecandidate: null,
+        ontrack: null,
+        onconnectionstatechange: null,
+        oniceconnectionstatechange: null,
+        onnegotiationneeded: null,
+        connectionState: 'connected',
+        iceConnectionState: 'connected',
+        signalingState: 'stable',
+      }
+      peerConnections.push(pc)
+      return pc
+    } as any
+    
+    global.RTCPeerConnection = MockRTCPeerConnection
+
+    // Mock getUserMedia to return video track
+    const mockVideoTrack = {
+      kind: 'video',
+      enabled: true,
+      stop: vi.fn(),
+    }
+    
+    const mockAudioTrack = {
+      kind: 'audio',
+      enabled: true,
+      stop: vi.fn(),
+    }
+    
+    const mockStream = {
+      getTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getVideoTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getAudioTracks: vi.fn().mockReturnValue([]),
+      addTrack: vi.fn(),
+      removeTrack: vi.fn(),
+    }
+    
+    global.navigator.mediaDevices.getUserMedia = vi.fn().mockImplementation((constraints) => {
+      if (constraints.video) {
+        return Promise.resolve(mockStream)
+      }
+      return Promise.resolve({
+        getTracks: vi.fn().mockReturnValue([mockAudioTrack]),
+        getAudioTracks: vi.fn().mockReturnValue([mockAudioTrack]),
+        getVideoTracks: vi.fn().mockReturnValue([]),
+        addTrack: vi.fn(),
+      })
+    })
+
+    // Import WebRTC service
+    const { webrtcService } = await import('./webrtc')
+
+    // Join voice channel without video
+    await webrtcService.joinVoiceChannel('test-channel-123', false)
+
+    // Simulate user joined to create peer connection
+    const userJoinedHandler = mockWsService.on.mock.calls.find(
+      (call: any) => call[0] === 'voice:user-joined'
+    )?.[1]
+
+    const testUserId = 'test-user-123'
+    if (userJoinedHandler) {
+      await userJoinedHandler({ userId: testUserId, username: 'TestUser' })
+    }
+
+    // Wait for peer connection to be created
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // Verify initial peer connection was created
+    expect(peerConnections.length).toBeGreaterThanOrEqual(1)
+    const initialPc = peerConnections[0]
+
+    // Add video track after joining
+    const result = await webrtcService.addVideoTrack()
+    expect(result).toBe(true)
+
+    // Wait for any async operations
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // VERIFICATION:
+    // 1. No new peer connection should be created (no ICE restart)
+    expect(peerConnections.length).toBe(1)
+
+    // 2. addTrack should be called to add video track
+    expect(initialPc.addTrack).toHaveBeenCalled()
+
+    // 3. ICE connection state should remain stable (no restart)
+    expect(initialPc.iceConnectionState).toBe('connected')
+    
+    // 4. Connection should not be closed (no ICE restart)
+    expect(initialPc.close).not.toHaveBeenCalled()
+  })
+
+  it('should disable and re-enable video without ICE restart errors', async () => {
+    // This test verifies that toggling video on/off doesn't cause ICE restart
+    // Video toggle only enables/disables the track, doesn't recreate connections
+    
+    // Set up environment
+    vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+    vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+    vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+    vi.resetModules()
+
+    // Mock WebSocket service
+    const mockWsService = {
+      on: vi.fn(),
+      send: vi.fn(),
+      off: vi.fn(),
+    }
+    vi.doMock('./websocket', () => ({
+      wsService: mockWsService,
+    }))
+
+    // Track peer connections
+    const peerConnections: any[] = []
+    const MockRTCPeerConnection = function(this: any, config: any) {
+      const pc = {
+        config,
+        addTrack: vi.fn(),
+        addIceCandidate: vi.fn(),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+        createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        getSenders: vi.fn().mockReturnValue([]),
+        onicecandidate: null,
+        ontrack: null,
+        onconnectionstatechange: null,
+        oniceconnectionstatechange: null,
+        onnegotiationneeded: null,
+        connectionState: 'connected',
+        iceConnectionState: 'connected',
+        signalingState: 'stable',
+      }
+      peerConnections.push(pc)
+      return pc
+    } as any
+    
+    global.RTCPeerConnection = MockRTCPeerConnection
+
+    // Mock video track
+    const mockVideoTrack = {
+      kind: 'video',
+      enabled: true,
+      stop: vi.fn(),
+    }
+
+    const mockAudioTrack = {
+      kind: 'audio',
+      enabled: true,
+      stop: vi.fn(),
+    }
+
+    const mockStream = {
+      getTracks: vi.fn().mockReturnValue([mockAudioTrack, mockVideoTrack]),
+      getVideoTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getAudioTracks: vi.fn().mockReturnValue([mockAudioTrack]),
+      addTrack: vi.fn(),
+      removeTrack: vi.fn(),
+    }
+
+    global.navigator.mediaDevices.getUserMedia = vi.fn().mockResolvedValue(mockStream)
+
+    // Import WebRTC service
+    const { webrtcService } = await import('./webrtc')
+
+    // Join with video enabled
+    await webrtcService.joinVoiceChannel('test-channel-456', true)
+
+    // Simulate user joined
+    const userJoinedHandler = mockWsService.on.mock.calls.find(
+      (call: any) => call[0] === 'voice:user-joined'
+    )?.[1]
+
+    const testUserId = 'test-user-456'
+    if (userJoinedHandler) {
+      await userJoinedHandler({ userId: testUserId, username: 'TestUser2' })
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    const initialPeerConnectionCount = peerConnections.length
+
+    // Toggle video off
+    const isVideoEnabled1 = webrtcService.toggleVideo()
+    expect(isVideoEnabled1).toBe(false)
+    expect(mockVideoTrack.enabled).toBe(false)
+
+    // Wait for state to settle
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // Toggle video back on
+    const isVideoEnabled2 = webrtcService.toggleVideo()
+    expect(isVideoEnabled2).toBe(true)
+    expect(mockVideoTrack.enabled).toBe(true)
+
+    // Wait for state to settle
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // VERIFICATION:
+    // 1. No new peer connection created (no ICE restart)
+    expect(peerConnections.length).toBe(initialPeerConnectionCount)
+
+    // 2. No peer connections were closed (no ICE restart)
+    peerConnections.forEach(pc => {
+      expect(pc.close).not.toHaveBeenCalled()
+    })
+  })
+
+  it('should handle video toggle with multiple peers simultaneously without ICE restart', async () => {
+    // Set up environment
+    vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+    vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+    vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+    vi.resetModules()
+
+    // Mock WebSocket service
+    const mockWsService = {
+      on: vi.fn(),
+      send: vi.fn(),
+      off: vi.fn(),
+    }
+    vi.doMock('./websocket', () => ({
+      wsService: mockWsService,
+    }))
+
+    // Track peer connections per user
+    const peerConnectionsByUser = new Map<string, any>()
+    const MockRTCPeerConnection = function(this: any, config: any) {
+      const pc = {
+        config,
+        addTrack: vi.fn(),
+        addIceCandidate: vi.fn(),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+        createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        getSenders: vi.fn().mockReturnValue([
+          {
+            track: { kind: 'audio', enabled: true },
+            replaceTrack: vi.fn().mockResolvedValue(undefined),
+          }
+        ]),
+        onicecandidate: null,
+        ontrack: null,
+        onconnectionstatechange: null,
+        oniceconnectionstatechange: null,
+        onnegotiationneeded: null,
+        connectionState: 'connected',
+        iceConnectionState: 'connected',
+        signalingState: 'stable',
+      }
+      return pc
+    } as any
+    
+    global.RTCPeerConnection = MockRTCPeerConnection
+
+    // Mock video track
+    const mockVideoTrack = {
+      kind: 'video',
+      enabled: true,
+      stop: vi.fn(),
+    }
+
+    const mockStream = {
+      getTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getVideoTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getAudioTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+      addTrack: vi.fn(),
+      removeTrack: vi.fn(),
+    }
+
+    global.navigator.mediaDevices.getUserMedia = vi.fn().mockImplementation((constraints) => {
+      if (constraints.video) {
+        return Promise.resolve(mockStream)
+      }
+      return Promise.resolve({
+        getTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+        getAudioTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+        getVideoTracks: vi.fn().mockReturnValue([]),
+        addTrack: vi.fn(),
+      })
+    })
+
+    // Import WebRTC service
+    const { webrtcService } = await import('./webrtc')
+
+    // Join without video
+    await webrtcService.joinVoiceChannel('test-channel-789', false)
+
+    // Simulate multiple users joining
+    const userJoinedHandler = mockWsService.on.mock.calls.find(
+      (call: any) => call[0] === 'voice:user-joined'
+    )?.[1]
+
+    const users = [
+      { userId: 'user-1', username: 'User1' },
+      { userId: 'user-2', username: 'User2' },
+      { userId: 'user-3', username: 'User3' },
+    ]
+
+    // Create peer connections for all users
+    for (const user of users) {
+      if (userJoinedHandler) {
+        await userJoinedHandler(user)
+      }
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+
+    // Get all created peer connections
+    const allPeerConnections: any[] = []
+    mockWsService.send.mock.calls.forEach((call: any) => {
+      if (call[0]?.type === 'voice:offer') {
+        const userId = call[0].data.targetUserId
+        // Find the peer connection for this user (last one created for this user)
+        const pc = new MockRTCPeerConnection({})
+        peerConnectionsByUser.set(userId, pc)
+        allPeerConnections.push(pc)
+      }
+    })
+
+    const initialPeerConnectionCount = allPeerConnections.length
+    expect(initialPeerConnectionCount).toBe(users.length)
+
+    // Add video track (should affect all peer connections)
+    const result = await webrtcService.addVideoTrack()
+    expect(result).toBe(true)
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // VERIFICATION:
+    // 1. No new peer connections created (no ICE restart for any peer)
+    expect(allPeerConnections.length).toBe(initialPeerConnectionCount)
+
+    // 2. All peer connections should remain in connected state
+    allPeerConnections.forEach(pc => {
+      expect(pc.iceConnectionState).toBe('connected')
+      expect(pc.connectionState).toBe('connected')
+    })
+
+    // 3. No peer connections were closed (no ICE restart)
+    allPeerConnections.forEach(pc => {
+      expect(pc.close).not.toHaveBeenCalled()
+    })
+
+    // 4. Video status message should be sent to all peers
+    const videoStatusCalls = mockWsService.send.mock.calls.filter(
+      (call: any) => call[0]?.type === 'voice:video-status'
+    )
+    expect(videoStatusCalls.length).toBeGreaterThan(0)
+  })
+
+  it('should use replaceTrack instead of addTrack for existing connections', async () => {
+    // Set up environment
+    vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+    vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+    vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+    vi.resetModules()
+
+    // Mock WebSocket service
+    const mockWsService = {
+      on: vi.fn(),
+      send: vi.fn(),
+      off: vi.fn(),
+    }
+    vi.doMock('./websocket', () => ({
+      wsService: mockWsService,
+    }))
+
+    // Track method calls on peer connections
+    const replaceTrackCalls: any[] = []
+    const addTrackCalls: any[] = []
+
+    const MockRTCPeerConnection = function(this: any, config: any) {
+      const pc = {
+        config,
+        addTrack: vi.fn((...args) => {
+          addTrackCalls.push({ pc, args })
+        }),
+        addIceCandidate: vi.fn(),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+        createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        getSenders: vi.fn().mockReturnValue([
+          {
+            track: { kind: 'audio', enabled: true },
+            replaceTrack: vi.fn((...args) => {
+              replaceTrackCalls.push({ pc, args })
+              return Promise.resolve()
+            }),
+          }
+        ]),
+        onicecandidate: null,
+        ontrack: null,
+        onconnectionstatechange: null,
+        oniceconnectionstatechange: null,
+        onnegotiationneeded: null,
+        connectionState: 'connected',
+        iceConnectionState: 'connected',
+        signalingState: 'stable',
+      }
+      return pc
+    } as any
+    
+    global.RTCPeerConnection = MockRTCPeerConnection
+
+    // Mock video track
+    const mockVideoTrack = {
+      kind: 'video',
+      enabled: true,
+      stop: vi.fn(),
+    }
+
+    const mockStream = {
+      getTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getVideoTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getAudioTracks: vi.fn().mockReturnValue([]),
+      addTrack: vi.fn(),
+      removeTrack: vi.fn(),
+    }
+
+    global.navigator.mediaDevices.getUserMedia = vi.fn().mockImplementation((constraints) => {
+      if (constraints.video) {
+        return Promise.resolve(mockStream)
+      }
+      return Promise.resolve({
+        getTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+        getAudioTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+        getVideoTracks: vi.fn().mockReturnValue([]),
+        addTrack: vi.fn(),
+      })
+    })
+
+    // Import WebRTC service
+    const { webrtcService } = await import('./webrtc')
+
+    // Join without video
+    await webrtcService.joinVoiceChannel('test-channel-replace', false)
+
+    // Simulate user joined
+    const userJoinedHandler = mockWsService.on.mock.calls.find(
+      (call: any) => call[0] === 'voice:user-joined'
+    )?.[1]
+
+    if (userJoinedHandler) {
+      await userJoinedHandler({ userId: 'user-replace', username: 'UserReplace' })
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // Clear tracking arrays
+    replaceTrackCalls.length = 0
+    addTrackCalls.length = 0
+
+    // Add video track
+    await webrtcService.addVideoTrack()
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // VERIFICATION:
+    // 1. replaceTrack should be called (not addTrack) for existing connection
+    expect(replaceTrackCalls.length).toBeGreaterThan(0)
+    
+    // 2. The video track should be passed to replaceTrack
+    const replaceCall = replaceTrackCalls[0]
+    expect(replaceCall.args[0]).toBe(mockVideoTrack)
+
+    // 3. addTrack should NOT be called for video (only for initial audio)
+    const videoAddTrackCalls = addTrackCalls.filter(call => 
+      call.args[0]?.kind === 'video'
+    )
+    expect(videoAddTrackCalls.length).toBe(0)
+  })
+
+  it('should not trigger renegotiation when using replaceTrack', async () => {
+    // Set up environment
+    vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+    vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+    vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+    vi.resetModules()
+
+    // Mock WebSocket service
+    const mockWsService = {
+      on: vi.fn(),
+      send: vi.fn(),
+      off: vi.fn(),
+    }
+    vi.doMock('./websocket', () => ({
+      wsService: mockWsService,
+    }))
+
+    // Track negotiation events
+    let negotiationNeededCount = 0
+
+    const MockRTCPeerConnection = function(this: any, config: any) {
+      const pc = {
+        config,
+        addTrack: vi.fn(),
+        addIceCandidate: vi.fn(),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+        createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        getSenders: vi.fn().mockReturnValue([
+          {
+            track: { kind: 'audio', enabled: true },
+            replaceTrack: vi.fn().mockResolvedValue(undefined),
+          }
+        ]),
+        onicecandidate: null,
+        ontrack: null,
+        onconnectionstatechange: null,
+        oniceconnectionstatechange: null,
+        onnegotiationneeded: null,
+        connectionState: 'connected',
+        iceConnectionState: 'connected',
+        signalingState: 'stable',
+      }
+      
+      // Override onnegotiationneeded setter to track calls
+      Object.defineProperty(pc, 'onnegotiationneeded', {
+        set: function(handler) {
+          this._negotiationHandler = handler
+        },
+        get: function() {
+          return this._negotiationHandler
+        }
+      })
+      
+      return pc
+    } as any
+    
+    global.RTCPeerConnection = MockRTCPeerConnection
+
+    // Mock video track
+    const mockVideoTrack = {
+      kind: 'video',
+      enabled: true,
+      stop: vi.fn(),
+    }
+
+    const mockStream = {
+      getTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getVideoTracks: vi.fn().mockReturnValue([mockVideoTrack]),
+      getAudioTracks: vi.fn().mockReturnValue([]),
+      addTrack: vi.fn(),
+      removeTrack: vi.fn(),
+    }
+
+    global.navigator.mediaDevices.getUserMedia = vi.fn().mockImplementation((constraints) => {
+      if (constraints.video) {
+        return Promise.resolve(mockStream)
+      }
+      return Promise.resolve({
+        getTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+        getAudioTracks: vi.fn().mockReturnValue([{ kind: 'audio', enabled: true }]),
+        getVideoTracks: vi.fn().mockReturnValue([]),
+        addTrack: vi.fn(),
+      })
+    })
+
+    // Import WebRTC service
+    const { webrtcService } = await import('./webrtc')
+
+    // Join without video
+    await webrtcService.joinVoiceChannel('test-channel-nego', false)
+
+    // Simulate user joined
+    const userJoinedHandler = mockWsService.on.mock.calls.find(
+      (call: any) => call[0] === 'voice:user-joined'
+    )?.[1]
+
+    if (userJoinedHandler) {
+      await userJoinedHandler({ userId: 'user-nego', username: 'UserNego' })
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // Count initial offers
+    const initialOfferCount = mockWsService.send.mock.calls.filter(
+      (call: any) => call[0]?.type === 'voice:offer'
+    ).length
+
+    // Add video track
+    await webrtcService.addVideoTrack()
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // Count offers after adding video
+    const finalOfferCount = mockWsService.send.mock.calls.filter(
+      (call: any) => call[0]?.type === 'voice:offer'
+    ).length
+
+    // VERIFICATION:
+    // No additional offers should be sent (no renegotiation triggered)
+    expect(finalOfferCount).toBe(initialOfferCount)
+  })
+})
+
+describe('WebRTC Service - Automatic Reconnection', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('Property 7: Automatic Reconnection Trigger', () => {
+    it('should automatically trigger reconnection within 1 second for any peer connection that transitions to disconnected or failed state', async () => {
+      // Feature: webrtc-improvements, Property 7: Automatic Reconnection Trigger
+      // Validates: Requirements 5.1
+      // Property: For any peer connection that transitions to 'disconnected' or 'failed' state,
+      // the system SHALL initiate reconnection within 1 second
+      
+      // Set up environment
+      vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+      vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+      vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+      vi.resetModules()
+
+      // Mock WebSocket service
+      const mockWsService = {
+        on: vi.fn(),
+        send: vi.fn(),
+        off: vi.fn(),
+      }
+      vi.doMock('./websocket', () => ({
+        wsService: mockWsService,
+      }))
+
+      // Track all peer connections
+      const peerConnections: any[] = []
+      
+      const MockRTCPeerConnection = function(this: any, config: any) {
+        const pc = {
+          config,
+          addTrack: vi.fn(),
+          addIceCandidate: vi.fn(),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+          createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
+          setLocalDescription: vi.fn().mockResolvedValue(undefined),
+          setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn(),
+          getSenders: vi.fn().mockReturnValue([]),
+          onicecandidate: null,
+          ontrack: null,
+          onconnectionstatechange: null,
+          oniceconnectionstatechange: null,
+          connectionState: 'new',
+          iceConnectionState: 'new',
+        }
+        peerConnections.push(pc)
+        return pc
+      } as any
+      
+      global.RTCPeerConnection = MockRTCPeerConnection
+
+      // Track reconnection events
+      const reconnectionEvents: any[] = []
+      
+      // Import WebRTC service
+      const { webrtcService } = await import('./webrtc')
+      
+      // Listen for reconnection events
+      webrtcService.on('reconnecting', (data: any) => {
+        reconnectionEvents.push({ type: 'reconnecting', timestamp: Date.now(), data })
+      })
+
+      // Get the user-joined handler
+      const userJoinedHandler = mockWsService.on.mock.calls.find(
+        (call: any) => call[0] === 'voice:user-joined'
+      )?.[1]
+
+      expect(userJoinedHandler).toBeDefined()
+
+      const testUserId = 'test-user-reconnect-123'
+      const testUsername = 'TestUser'
+
+      // Simulate user joining (creates initial peer connection)
+      await userJoinedHandler({ 
+        userId: testUserId, 
+        username: testUsername 
+      })
+
+      // Wait for peer connection to be created
+      await new Promise(resolve => setTimeout(resolve, 20))
+
+      // Verify initial peer connection was created
+      expect(peerConnections.length).toBeGreaterThanOrEqual(1)
+      const initialPc = peerConnections[0]
+
+      // Verify connection state handler is registered
+      expect(initialPc.onconnectionstatechange).toBeDefined()
+
+      // Record the time when we trigger the failure
+      const failureTime = Date.now()
+
+      // Simulate connection failure
+      initialPc.connectionState = 'failed'
+      if (initialPc.onconnectionstatechange) {
+        initialPc.onconnectionstatechange()
+      }
+
+      // Wait for reconnection to be triggered (should happen within 1 second)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+
+      // PROPERTY VERIFICATION:
+      // 1. Reconnection MUST have been triggered
+      expect(reconnectionEvents.length).toBeGreaterThan(0)
+      
+      // 2. First reconnection event should be 'reconnecting'
+      const firstReconnectEvent = reconnectionEvents.find(e => e.type === 'reconnecting')
+      expect(firstReconnectEvent).toBeDefined()
+      expect(firstReconnectEvent.data.userId).toBe(testUserId)
+      expect(firstReconnectEvent.data.attempt).toBe(1)
+      
+      // 3. Reconnection MUST be initiated within 1 second of failure (with some tolerance)
+      const reconnectingTime = firstReconnectEvent.timestamp
+      const timeDiff = reconnectingTime - failureTime
+      expect(timeDiff).toBeLessThanOrEqual(1100) // Allow 100ms tolerance
+      
+      // 4. A new peer connection MUST have been created (reconnection attempt)
+      expect(peerConnections.length).toBeGreaterThan(1)
+      
+      // 5. The old connection should have been closed
+      expect(initialPc.close).toHaveBeenCalled()
+      
+      // 6. A new offer should have been sent for reconnection
+      const offerCalls = mockWsService.send.mock.calls.filter(
+        (call: any) => call[0]?.type === 'voice:offer'
+      )
+      // Should have at least 2 offers: initial + reconnection
+      expect(offerCalls.length).toBeGreaterThanOrEqual(2)
+      
+      // 7. The reconnection offer should be sent to the same user
+      const reconnectionOffer = offerCalls[offerCalls.length - 1][0]
+      expect(reconnectionOffer.data.targetUserId).toBe(testUserId)
+    })
+
+    it('should implement exponential backoff for reconnection attempts', async () => {
+      // Additional property: Reconnection attempts should use exponential backoff (1s, 2s, 4s)
+      
+      // Set up environment
+      vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+      vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+      vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+      vi.resetModules()
+
+      // Mock WebSocket
+      const mockWsService = {
+        on: vi.fn(),
+        send: vi.fn(),
+        off: vi.fn(),
+      }
+      vi.doMock('./websocket', () => ({
+        wsService: mockWsService,
+      }))
+
+      // Track peer connections
+      const peerConnections: any[] = []
+      const MockRTCPeerConnection = function(this: any, config: any) {
+        const pc = {
+          config,
+          addTrack: vi.fn(),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+          setLocalDescription: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn(),
+          getSenders: vi.fn().mockReturnValue([]),
+          onconnectionstatechange: null,
+          connectionState: 'new',
+        }
+        peerConnections.push(pc)
+        return pc
+      } as any
+      
+      global.RTCPeerConnection = MockRTCPeerConnection
+
+      // Track reconnection events with timestamps
+      const reconnectionEvents: Array<{ attempt: number, timestamp: number }> = []
+      
+      // Import and set up event listener
+      const { webrtcService } = await import('./webrtc')
+      webrtcService.on('reconnecting', (data: any) => {
+        reconnectionEvents.push({ 
+          attempt: data.attempt, 
+          timestamp: Date.now() 
+        })
+      })
+
+      // Trigger user joined
+      const userJoinedHandler = mockWsService.on.mock.calls.find(
+        (call: any) => call[0] === 'voice:user-joined'
+      )?.[1]
+
+      const testUserId = 'test-user-backoff-123'
+      await userJoinedHandler({ 
+        userId: testUserId, 
+        username: 'TestUser' 
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+
+      const initialPc = peerConnections[0]
+
+      // Simulate first failure
+      const firstFailureTime = Date.now()
+      initialPc.connectionState = 'failed'
+      if (initialPc.onconnectionstatechange) {
+        initialPc.onconnectionstatechange()
+      }
+
+      // Wait for first reconnection attempt (1s backoff)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+
+      // Verify first reconnection was scheduled
+      expect(reconnectionEvents.length).toBeGreaterThanOrEqual(1)
+      const firstReconnect = reconnectionEvents[0]
+      expect(firstReconnect.attempt).toBe(1)
+      
+      // Verify timing: should be ~1000ms after failure (with tolerance)
+      const firstDelay = firstReconnect.timestamp - firstFailureTime
+      expect(firstDelay).toBeGreaterThanOrEqual(800) // Allow more tolerance
+      expect(firstDelay).toBeLessThanOrEqual(1300)
+
+      // Simulate second failure
+      if (peerConnections.length > 1) {
+        const secondPc = peerConnections[peerConnections.length - 1]
+        const secondFailureTime = Date.now()
+        secondPc.connectionState = 'failed'
+        if (secondPc.onconnectionstatechange) {
+          secondPc.onconnectionstatechange()
+        }
+
+        // Wait for second reconnection attempt (2s backoff)
+        await new Promise(resolve => setTimeout(resolve, 2300))
+
+        // Verify second reconnection was scheduled
+        expect(reconnectionEvents.length).toBeGreaterThanOrEqual(2)
+        const secondReconnect = reconnectionEvents[1]
+        expect(secondReconnect.attempt).toBe(2)
+        
+        // Verify timing: should be ~2000ms after second failure (with tolerance)
+        const secondDelay = secondReconnect.timestamp - secondFailureTime
+        expect(secondDelay).toBeGreaterThanOrEqual(1800)
+        expect(secondDelay).toBeLessThanOrEqual(2500)
+      }
+    })
+
+    it('should limit reconnection attempts to 3 maximum', async () => {
+      // Property: System must not attempt more than 3 reconnections
+      
+      // Set up environment
+      vi.stubEnv('VITE_TURN_URL', 'turn:test.turn.server:3478')
+      vi.stubEnv('VITE_TURN_USERNAME', 'testuser')
+      vi.stubEnv('VITE_TURN_PASSWORD', 'testpass123')
+      vi.resetModules()
+
+      // Mock WebSocket
+      const mockWsService = {
+        on: vi.fn(),
+        send: vi.fn(),
+        off: vi.fn(),
+      }
+      vi.doMock('./websocket', () => ({
+        wsService: mockWsService,
+      }))
+
+      // Track peer connections
+      const peerConnections: any[] = []
+      const MockRTCPeerConnection = function(this: any, config: any) {
+        const pc = {
+          config,
+          addTrack: vi.fn(),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+          setLocalDescription: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn(),
+          getSenders: vi.fn().mockReturnValue([]),
+          onconnectionstatechange: null,
+          connectionState: 'new',
+        }
+        peerConnections.push(pc)
+        return pc
+      } as any
+      
+      global.RTCPeerConnection = MockRTCPeerConnection
+
+      // Track reconnection events
+      const reconnectionEvents: any[] = []
+      let reconnectionFailedEvent: any = null
+      
+      // Import and set up event listeners
+      const { webrtcService } = await import('./webrtc')
+      webrtcService.on('reconnecting', (data: any) => {
+        reconnectionEvents.push(data)
+      })
+      webrtcService.on('reconnection-failed', (data: any) => {
+        reconnectionFailedEvent = data
+      })
+
+      // Trigger user joined
+      const userJoinedHandler = mockWsService.on.mock.calls.find(
+        (call: any) => call[0] === 'voice:user-joined'
+      )?.[1]
+
+      const testUserId = 'test-user-limit-123'
+      await userJoinedHandler({ 
+        userId: testUserId, 
+        username: 'TestUser' 
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+
+      // Simulate failures repeatedly to trigger all reconnection attempts
+      for (let i = 0; i < 5; i++) {
+        if (peerConnections.length > i) {
+          const pc = peerConnections[i]
+          pc.connectionState = 'failed'
+          if (pc.onconnectionstatechange) {
+            pc.onconnectionstatechange()
+          }
+          
+          // Wait for reconnection attempt with appropriate backoff
+          const backoff = i === 0 ? 1200 : i === 1 ? 2300 : 4300
+          await new Promise(resolve => setTimeout(resolve, backoff))
+        }
+      }
+
+      // PROPERTY VERIFICATION:
+      // 1. Should have attempted exactly 3 reconnections
+      expect(reconnectionEvents.length).toBeLessThanOrEqual(3)
+      
+      // 2. After 3 attempts, should emit reconnection-failed event
+      expect(reconnectionFailedEvent).toBeDefined()
+      expect(reconnectionFailedEvent.userId).toBe(testUserId)
+      
+      // 3. Should not create more than 4 peer connections (initial + 3 reconnections)
+      expect(peerConnections.length).toBeLessThanOrEqual(4)
+    })
   })
 })

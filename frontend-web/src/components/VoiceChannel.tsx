@@ -107,6 +107,20 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       voiceStore.setConnectionQuality(userId, quality)
     }
 
+    const handleReconnecting = ({ userId, attempt, maxAttempts }: { userId: string; attempt: number; maxAttempts: number }) => {
+      console.log(`User ${userId} reconnecting: attempt ${attempt}/${maxAttempts}`)
+      
+      // Update reconnection state in voiceStore
+      voiceStore.setUserReconnecting(userId, attempt, maxAttempts)
+    }
+
+    const handleReconnectionFailed = ({ userId }: { userId: string }) => {
+      console.log(`User ${userId} reconnection failed`)
+      
+      // Clear reconnection state
+      voiceStore.clearUserReconnecting(userId)
+    }
+
     webrtcService.on('local-stream', handleLocalStream)
     webrtcService.on('remote-stream', handleRemoteStream)
     webrtcService.on('user-joined', handleUserJoined)
@@ -114,6 +128,8 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     webrtcService.on('mute-status-changed', handleMuteStatusChanged)
     webrtcService.on('video-status-changed', handleVideoStatusChanged)
     webrtcService.on('connection-quality-change', handleConnectionQualityChange)
+    webrtcService.on('reconnecting', handleReconnecting)
+    webrtcService.on('reconnection-failed', handleReconnectionFailed)
 
     return () => {
       webrtcService.off('local-stream', handleLocalStream)
@@ -123,6 +139,8 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       webrtcService.off('mute-status-changed', handleMuteStatusChanged)
       webrtcService.off('video-status-changed', handleVideoStatusChanged)
       webrtcService.off('connection-quality-change', handleConnectionQualityChange)
+      webrtcService.off('reconnecting', handleReconnecting)
+      webrtcService.off('reconnection-failed', handleReconnectionFailed)
       // NÃO chamar leaveVoiceChannel aqui - deixar o ChatScreen gerenciar
     }
   }, [channelId])
@@ -293,7 +311,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
                   </div>
                 )}
                 {/* Error state - connection failed */}
-                {quality && (quality.state === 'failed' || quality.state === 'closed') && (
+                {quality && (quality.state === 'failed' || quality.state === 'closed') && !voiceStore.reconnectingUsers.has(voiceUser.userId) && (
                   <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3">
                     <div className="text-red-500 text-center">
                       <div className="text-lg font-semibold mb-1">Connection Lost</div>
@@ -301,9 +319,8 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
                     </div>
                     <button
                       onClick={() => {
-                        // Trigger reconnection by leaving and rejoining
                         console.log('Manual reconnect requested for', voiceUser.userId)
-                        // This would need to be implemented in the WebRTC service
+                        webrtcService.manualReconnect(voiceUser.userId)
                       }}
                       className="px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded text-sm font-medium transition-colors"
                     >
@@ -325,6 +342,18 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
                   <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
                     <div className="text-center text-orange-500">
                       <div className="text-sm font-medium">Reconnecting...</div>
+                    </div>
+                  </div>
+                )}
+                {/* Reconnection attempt indicator */}
+                {voiceStore.reconnectingUsers.has(voiceUser.userId) && (
+                  <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mb-2"></div>
+                    <div className="text-center">
+                      <div className="text-sm font-medium text-primary-400">Reconnecting...</div>
+                      <div className="text-xs text-dark-400 mt-1">
+                        Attempt {voiceStore.reconnectingUsers.get(voiceUser.userId)?.attempt} of {voiceStore.reconnectingUsers.get(voiceUser.userId)?.maxAttempts}
+                      </div>
                     </div>
                   </div>
                 )}
