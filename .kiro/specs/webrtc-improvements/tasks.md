@@ -178,7 +178,7 @@
 ## Phase 2: Enhanced User Experience
 
 - [-] 6. Voice Activity Detection
-- [-] 6.1 Create VoiceActivityDetector module
+- [x] 6.1 Create VoiceActivityDetector module
   - Create `frontend-web/src/services/voiceActivityDetector.ts`
   - Implement audio context and analyser setup
   - Implement audio level monitoring
