@@ -186,7 +186,7 @@
   - Add smoothing to prevent flickering
   - _Requirements: 3.1_
 
-- [ ] 6.2 Write property test for voice activity threshold detection
+- [-] 6.2 Write property test for voice activity threshold detection
   - **Property 10: Voice Activity Threshold Detection**
   - **Validates: Requirements 3.1**
 
