@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/models"
 	"go.uber.org/zap"
-	"github.com/golang-jwt/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
 

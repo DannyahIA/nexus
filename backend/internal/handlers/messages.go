@@ -89,7 +89,7 @@ func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		// Buscar username do usuário
 		username := "Unknown User"
 		authorID := row["author_id"].(string)
-		
+
 		userRow, err := mh.db.GetUserByID(authorID)
 		if err != nil {
 			mh.logger.Warn("failed to get user info for message",

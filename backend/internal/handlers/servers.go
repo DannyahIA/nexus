@@ -140,12 +140,12 @@ func (sh *ServerHandler) GetServerChannels(w http.ResponseWriter, r *http.Reques
 	// Extrair server ID da URL: /api/servers/{id}/channels
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	
+
 	if len(parts) < 4 || parts[3] == "" {
 		http.Error(w, "server id required", http.StatusBadRequest)
 		return
 	}
-	
+
 	serverID := parts[3]
 
 	channels, err := sh.db.GetServerChannels(serverID)
@@ -181,13 +181,13 @@ func (sh *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 	// Extrair server ID da URL (/api/servers/{id})
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	
+
 	// Path: /api/servers/{id} -> parts: ["", "api", "servers", "{id}"]
 	if len(parts) < 4 || parts[3] == "" {
 		http.Error(w, "server id required", http.StatusBadRequest)
 		return
 	}
-	
+
 	serverID := parts[3]
 
 	// Atualizar servidor
@@ -221,13 +221,13 @@ func (sh *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 	// Extrair server ID da URL (/api/servers/{id})
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	
+
 	// Path: /api/servers/{id} -> parts: ["", "api", "servers", "{id}"]
 	if len(parts) < 4 || parts[3] == "" {
 		http.Error(w, "server id required", http.StatusBadRequest)
 		return
 	}
-	
+
 	serverID := parts[3]
 
 	// Verificar se o usuário é o dono do servidor

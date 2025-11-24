@@ -221,7 +221,7 @@ func (ch *ChannelHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ch.logger.Info("channel updated", zap.String("id", channelID), zap.String("name", req.Name))
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

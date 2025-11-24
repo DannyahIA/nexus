@@ -3,8 +3,8 @@ package models
 import (
 	"time"
 
-	"github.com/golang-jwt/jwt"
 	"github.com/gofrs/uuid"
+	"github.com/golang-jwt/jwt"
 )
 
 // Claims representa as claims JWT customizadas
@@ -53,11 +53,11 @@ type Group struct {
 
 // GroupMember representa a associação de um usuário a um grupo
 type GroupMember struct {
-	GroupID   uuid.UUID
-	UserID    uuid.UUID
-	Role      string // "owner", "admin", "moderator", "member"
-	Nickname  string
-	JoinedAt  time.Time
+	GroupID  uuid.UUID
+	UserID   uuid.UUID
+	Role     string // "owner", "admin", "moderator", "member"
+	Nickname string
+	JoinedAt time.Time
 }
 
 // ChannelMember representa a associação de um usuário a um canal

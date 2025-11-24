@@ -110,7 +110,7 @@ func (fh *FriendHandler) SendFriendRequest(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "friend request sent",
+		"message":  "friend request sent",
 		"toUserId": targetUserID,
 	})
 }
@@ -135,7 +135,7 @@ func (fh *FriendHandler) GetFriendRequests(w http.ResponseWriter, r *http.Reques
 	requests := make([]FriendRequestResponse, 0)
 	for _, row := range rows {
 		fromUserID := row["from_user_id"].(string)
-		
+
 		// Buscar informações do usuário remetente
 		user, _ := fh.db.GetUserByID(fromUserID)
 		username := "Unknown"
@@ -258,47 +258,47 @@ func (fh *FriendHandler) GetFriends(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implementar sistema de amigos completo
 	// Por enquanto retorna lista vazia para não quebrar o frontend
 	friends := make([]FriendResponse, 0)
-	
+
 	// Código comentado até implementar tabelas de amigos
 	/*
-	rows, err := fh.db.GetFriends(claims.UserID)
-	if err != nil {
-		fh.logger.Error("failed to get friends", zap.Error(err))
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	for _, row := range rows {
-		friendID := row["friend_id"].(string)
-		
-		// Buscar informações do amigo
-		user, _ := fh.db.GetUserByID(friendID)
-		username := "Unknown"
-		if user != nil {
-			username = user["username"].(string)
+		rows, err := fh.db.GetFriends(claims.UserID)
+		if err != nil {
+			fh.logger.Error("failed to get friends", zap.Error(err))
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
 
-		// Buscar presença
-		presence, _ := fh.db.GetUserPresence(friendID)
-		status := "offline"
-		if presence != nil {
-			status = presence["status"].(string)
-		}
+		for _, row := range rows {
+			friendID := row["friend_id"].(string)
 
-		friend := FriendResponse{
-			UserID:      friendID,
-			Username:    username,
-			DMChannelID: row["dm_channel_id"].(string),
-			Status:      status,
-			AddedAt:     row["added_at"].(time.Time).UnixMilli(),
-		}
+			// Buscar informações do amigo
+			user, _ := fh.db.GetUserByID(friendID)
+			username := "Unknown"
+			if user != nil {
+				username = user["username"].(string)
+			}
 
-		if nickname, ok := row["nickname"].(string); ok && nickname != "" {
-			friend.Nickname = nickname
-		}
+			// Buscar presença
+			presence, _ := fh.db.GetUserPresence(friendID)
+			status := "offline"
+			if presence != nil {
+				status = presence["status"].(string)
+			}
 
-		friends = append(friends, friend)
-	}
+			friend := FriendResponse{
+				UserID:      friendID,
+				Username:    username,
+				DMChannelID: row["dm_channel_id"].(string),
+				Status:      status,
+				AddedAt:     row["added_at"].(time.Time).UnixMilli(),
+			}
+
+			if nickname, ok := row["nickname"].(string); ok && nickname != "" {
+				friend.Nickname = nickname
+			}
+
+			friends = append(friends, friend)
+		}
 	*/
 
 	w.Header().Set("Content-Type", "application/json")
