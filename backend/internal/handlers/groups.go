@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/nexus/backend/internal/database"
+	"github.com/nexus/backend/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -59,7 +60,7 @@ func (gh *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Obter usuário do contexto (JWT claims)
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -140,7 +141,7 @@ func (gh *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 // GetGroups retorna grupos do usuário
 func (gh *GroupHandler) GetGroups(w http.ResponseWriter, r *http.Request) {
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -186,7 +187,7 @@ func (gh *GroupHandler) GetGroupChannels(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -225,7 +226,7 @@ func (gh *GroupHandler) JoinGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -270,14 +271,10 @@ func (gh *GroupHandler) JoinGroup(w http.ResponseWriter, r *http.Request) {
 // generateInviteCode gera um código de convite aleatório
 func generateInviteCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	const codeLength = 8
-	
-	code := make([]byte, codeLength)
-	for i := 0; i < codeLength; i++ {
-		// Usar UUID para gerar bytes aleatórios
-		randomUUID := uuid.Must(uuid.NewV4())
-		randomByte := randomUUID.Bytes()[i % 16]
-		code[i] = chars[int(randomByte) % len(chars)]
+	code := make([]byte, 8)
+	for i := range code {
+		code[i] = chars[time.Now().UnixNano()%int64(len(chars))]
+		time.Sleep(1 * time.Nanosecond)
 	}
 	return string(code)
 }

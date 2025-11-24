@@ -186,17 +186,17 @@
   - Add smoothing to prevent flickering
   - _Requirements: 3.1_
 
-- [-] 6.2 Write property test for voice activity threshold detection
+- [x] 6.2 Write property test for voice activity threshold detection
   - **Property 10: Voice Activity Threshold Detection**
   - **Validates: Requirements 3.1**
 
-- [ ] 6.3 Integrate VAD with WebRTC service
+- [x] 6.3 Integrate VAD with WebRTC service
   - Attach VAD to local audio stream
   - Attach VAD to remote audio streams
   - Emit voice activity events
   - _Requirements: 3.1_
 
-- [ ] 6.4 Add speaking indicator to VoiceChannel UI
+- [x] 6.4 Add speaking indicator to VoiceChannel UI
   - Add green border around video when speaking
   - Update UI within 100ms of voice activity detection
   - Remove indicator 500ms after voice stops

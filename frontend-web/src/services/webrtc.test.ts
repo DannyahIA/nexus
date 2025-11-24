@@ -2139,3 +2139,296 @@ describe('WebRTC Service - Automatic Reconnection', () => {
     })
   })
 })
+
+describe('WebRTC Service - Voice Activity Detection', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('Property 11: Speaking Indicator Display', () => {
+    it('should emit voice-activity event when VAD detects speaking', async () => {
+      // Feature: webrtc-improvements, Property 11: Speaking Indicator Display
+      // Validates: Requirements 3.2
+      // Property: When VAD detects activity, the service SHALL emit a voice-activity event
+      
+      await fc.assert(
+        fc.asyncProperty(
+          fc.record({
+            userId: fc.uuid(),
+            audioLevel: fc.integer({ min: -40, max: 0 }),
+          }),
+          async (testCase) => {
+            vi.resetModules()
+
+            // Capture the VAD callback
+            let capturedCallback: any = null
+            const MockVad = vi.fn(() => ({
+              attachToStream: vi.fn(),
+              detach: vi.fn(),
+              onVoiceActivity: vi.fn((cb) => { capturedCallback = cb }),
+              setThreshold: vi.fn(),
+            }))
+            
+            vi.doMock('./voiceActivityDetector', () => ({
+              VoiceActivityDetector: MockVad
+            }))
+
+            // Mock dependencies
+            vi.doMock('./websocket', () => ({
+              wsService: { on: vi.fn(), send: vi.fn(), off: vi.fn() }
+            }))
+
+            global.RTCPeerConnection = vi.fn().mockImplementation(() => ({
+              addTrack: vi.fn(),
+              createOffer: vi.fn().mockResolvedValue({}),
+              setLocalDescription: vi.fn().mockResolvedValue(undefined),
+              close: vi.fn(),
+              getSenders: vi.fn().mockReturnValue([]),
+            })) as any
+
+            const { webrtcService } = await import('./webrtc')
+            
+            const eventSpy = vi.fn()
+            webrtcService.on('voice-activity', eventSpy)
+
+            // Initialize local VAD by joining
+            // We need to mock getUserMedia to return a stream
+            Object.defineProperty(global.navigator, 'mediaDevices', {
+              value: {
+                getUserMedia: vi.fn().mockResolvedValue({
+                  getTracks: vi.fn().mockReturnValue([]),
+                  getAudioTracks: vi.fn().mockReturnValue([{ stop: vi.fn() }]),
+                }),
+              },
+              writable: true,
+            })
+
+            // We need to set the local user ID in the service, but it's private/internal.
+            // However, joinVoiceChannel takes channelId.
+            // The userId in the event will be the local user's ID if it's local VAD.
+            // But webrtcService doesn't know its own userId unless set.
+            // Actually, for local VAD, webrtcService emits with userId='local' or similar?
+            // Checking webrtc.ts:
+            // this.localVad.onVoiceActivity((isActive, level) => {
+            //   this.emit('voice-activity', { userId: this.currentUserId, isActive, level });
+            // });
+            
+            // We need to set currentUserId. It's usually set via .
+            webrtcService.initialize(testCase.userId, 'test-token')
+            
+            await webrtcService.joinVoiceChannel('test-channel')
+            
+            expect(capturedCallback).toBeTruthy()
+            
+            // Trigger VAD activity
+            capturedCallback(true, testCase.audioLevel)
+            
+            expect(eventSpy).toHaveBeenCalledWith({
+              userId: testCase.userId,
+              isActive: true,
+              level: testCase.audioLevel
+            })
+          }
+        )
+      )
+    })
+  })
+})
+
+describe('WebRTC Service - Voice Activity Detection', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('Property 11: Speaking Indicator Display', () => {
+    it('should emit voice-activity event when VAD detects speaking', async () => {
+      // Feature: webrtc-improvements, Property 11: Speaking Indicator Display
+      // Validates: Requirements 3.2
+      // Property: When VAD detects activity, the service SHALL emit a voice-activity event
+      
+      await fc.assert(
+        fc.asyncProperty(
+          fc.record({
+            userId: fc.uuid(),
+            audioLevel: fc.integer({ min: -40, max: 0 }),
+          }),
+          async (testCase) => {
+            vi.resetModules()
+
+            // Capture the VAD callback
+            let capturedCallback: any = null
+            const MockVad = vi.fn(() => ({
+              attachToStream: vi.fn(),
+              detach: vi.fn(),
+              onVoiceActivity: vi.fn((cb) => { capturedCallback = cb }),
+              setThreshold: vi.fn(),
+            }))
+            
+            vi.doMock('./voiceActivityDetector', () => ({
+              VoiceActivityDetector: MockVad
+            }))
+
+            // Mock dependencies
+            vi.doMock('./websocket', () => ({
+              wsService: { on: vi.fn(), send: vi.fn(), off: vi.fn() }
+            }))
+
+            global.RTCPeerConnection = vi.fn().mockImplementation(() => ({
+              addTrack: vi.fn(),
+              createOffer: vi.fn().mockResolvedValue({}),
+              setLocalDescription: vi.fn().mockResolvedValue(undefined),
+              close: vi.fn(),
+              getSenders: vi.fn().mockReturnValue([]),
+            })) as any
+
+            const { webrtcService } = await import('./webrtc')
+            
+            const eventSpy = vi.fn()
+            webrtcService.on('voice-activity', eventSpy)
+
+            // Initialize local VAD by joining
+            // We need to mock getUserMedia to return a stream
+            Object.defineProperty(global.navigator, 'mediaDevices', {
+              value: {
+                getUserMedia: vi.fn().mockResolvedValue({
+                  getTracks: vi.fn().mockReturnValue([]),
+                  getAudioTracks: vi.fn().mockReturnValue([{ stop: vi.fn() }]),
+                }),
+              },
+              writable: true,
+            })
+
+            webrtcService.initialize(testCase.userId, 'test-token')
+            
+            await webrtcService.joinVoiceChannel('test-channel')
+            
+            expect(capturedCallback).toBeTruthy()
+            
+            // Trigger VAD activity
+            capturedCallback(true, testCase.audioLevel)
+            
+            expect(eventSpy).toHaveBeenCalledWith({
+              userId: testCase.userId,
+              isActive: true,
+              level: testCase.audioLevel
+            })
+          }
+        )
+      )
+    })
+  })
+})
+
+describe('WebRTC Service - Voice Activity Detection with Mute', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('Property 13: Mute Suppresses Speaking Indicator', () => {
+    it('should not show speaking indicator when user is muted', async () => {
+      // Feature: webrtc-improvements, Property 13: Mute Suppresses Speaking Indicator
+      // Validates: Requirements 3.5
+      // Property: When a user is muted, the speaking indicator SHALL NOT be shown
+      // even if VAD detects voice activity
+      
+      await fc.assert(
+        fc.asyncProperty(
+          fc.record({
+            userId: fc.uuid(),
+            username: fc.string({ minLength: 1, maxLength: 20 }),
+            isMuted: fc.boolean(),
+            audioLevel: fc.integer({ min: -40, max: 0 }), // Active audio levels
+          }),
+          async (testCase) => {
+            vi.resetModules()
+
+            // Mock VoiceActivityDetector
+            let capturedCallback: any = null
+            const MockVad = vi.fn(() => ({
+              attachToStream: vi.fn(),
+              detach: vi.fn(),
+              onVoiceActivity: vi.fn((cb) => { capturedCallback = cb }),
+              setThreshold: vi.fn(),
+            }))
+            
+            vi.doMock('./voiceActivityDetector', () => ({
+              VoiceActivityDetector: MockVad
+            }))
+
+            // Mock dependencies
+            const mockWsService = {
+              on: vi.fn(),
+              send: vi.fn(),
+              off: vi.fn(),
+            }
+            vi.doMock('./websocket', () => ({
+              wsService: mockWsService
+            }))
+
+            global.RTCPeerConnection = vi.fn().mockImplementation(() => ({
+              addTrack: vi.fn(),
+              createOffer: vi.fn().mockResolvedValue({}),
+              setLocalDescription: vi.fn().mockResolvedValue(undefined),
+              close: vi.fn(),
+              getSenders: vi.fn().mockReturnValue([]),
+              onicecandidate: null,
+              ontrack: null,
+            })) as any
+
+            const { useVoiceStore } = await import('../store/voiceStore')
+            
+            // Reset store
+            useVoiceStore.setState({
+              voiceUsers: [],
+            })
+
+            const { webrtcService } = await import('./webrtc')
+
+            // Add user to store with mute status
+            useVoiceStore.getState().addVoiceUser({
+              userId: testCase.userId,
+              username: testCase.username,
+              isMuted: testCase.isMuted,
+              isSpeaking: false,
+              isVideoEnabled: false,
+            })
+
+            // Simulate VAD detecting activity
+            webrtcService.emit('voice-activity', {
+              userId: testCase.userId,
+              isActive: true,
+              level: testCase.audioLevel
+            })
+
+            await new Promise(resolve => setTimeout(resolve, 10))
+
+            // Get the user from store
+            const voiceUser = useVoiceStore.getState().voiceUsers.find(u => u.userId === testCase.userId)
+
+            // PROPERTY VERIFICATION:
+            // If user is muted, isSpeaking should be false even though VAD detected activity
+            // If user is not muted, isSpeaking should be true
+            if (testCase.isMuted) {
+              expect(voiceUser?.isSpeaking).toBe(false)
+            } else {
+              expect(voiceUser?.isSpeaking).toBe(true)
+            }
+          }
+        ),
+        { numRuns: 50 }
+      )
+    })
+  })
+})

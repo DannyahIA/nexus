@@ -3,8 +3,17 @@ package models
 import (
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/gofrs/uuid"
 )
+
+// Claims representa as claims JWT customizadas
+type Claims struct {
+	UserID   string `json:"user_id"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	jwt.StandardClaims
+}
 
 // User representa um usuário do sistema
 type User struct {

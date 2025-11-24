@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/nexus/backend/internal/database"
+	"github.com/nexus/backend/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -122,7 +123,7 @@ func (ch *ChannelHandler) CreateChannel(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Extrair user_id do contexto (setado pelo middleware de autenticação)
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -181,7 +182,7 @@ func (ch *ChannelHandler) DeleteChannel(w http.ResponseWriter, r *http.Request) 
 
 // UpdateChannel atualiza um canal
 func (ch *ChannelHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

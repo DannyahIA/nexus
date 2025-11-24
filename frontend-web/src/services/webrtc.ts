@@ -2,6 +2,7 @@
 import { wsService } from './websocket'
 import { getWebRTCConfig } from '../config/webrtc'
 import { connectionMonitor, ConnectionQuality } from './connectionMonitor'
+import { VoiceActivityDetector } from './voiceActivityDetector'
 
 export interface VoiceUser {
   userId: string
@@ -17,25 +18,29 @@ class WebRTCService {
   private remoteStreams: Map<string, MediaStream> = new Map()
   private currentChannelId: string | null = null
   private listeners: Map<string, Set<Function>> = new Map()
-  
+
   // Configuração STUN/TURN
   private iceServers: RTCIceServer[] = []
-  
+
   // TURN fallback tracking
   private connectionAttempts: Map<string, number> = new Map()
   private usingTURNOnly: Map<string, boolean> = new Map()
   private iceConnectionStates: Map<string, RTCIceConnectionState> = new Map()
-  
+
   // Connection statistics tracking
   private connectionStartTimes: Map<string, number> = new Map()
   private connectionEstablishedTimes: Map<string, number> = new Map()
   private iceCandidateTypes: Map<string, Set<string>> = new Map()
-  
+
   // Reconnection tracking
   private reconnectionAttempts: Map<string, number> = new Map()
   private reconnectionTimeouts: Map<string, NodeJS.Timeout> = new Map()
   private maxReconnectionAttempts: number = 3
   private reconnectionBackoffs: number[] = [1000, 2000, 4000] // 1s, 2s, 4s
+
+  // VAD instances
+  private localVad: VoiceActivityDetector | null = null
+  private remoteVads: Map<string, VoiceActivityDetector> = new Map()
 
   constructor() {
     this.initializeICEServers()
@@ -121,7 +126,7 @@ class WebRTCService {
     try {
       console.log('🎤 Joining voice channel:', channelId)
       console.log('📡 WebSocket ready state:', wsService ? 'connected' : 'not connected')
-      
+
       // Obter stream local (áudio + vídeo opcional)
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -136,10 +141,21 @@ class WebRTCService {
         } : false,
       })
 
+      // Initialize VAD for local stream
+      this.localVad = new VoiceActivityDetector()
+      this.localVad.attachToStream(this.localStream)
+      this.localVad.onVoiceActivity((isActive, level) => {
+        // Emit local voice activity
+        this.emit('voice-activity', { userId: 'local', isActive, level })
+
+        // Optional: Send VAD status to peers via WebSocket if needed
+        // For now we rely on client-side VAD on both ends
+      })
+
       this.currentChannelId = channelId
-      
+
       console.log('📤 Sending voice:join to server', { channelId, videoEnabled })
-      
+
       // Notificar servidor que entrou no canal de voz
       wsService.send({
         type: 'voice:join',
@@ -158,7 +174,17 @@ class WebRTCService {
   // Sair do canal de voz
   leaveVoiceChannel() {
     console.log('🔇 Leaving voice channel')
-    
+
+    // Clean up local VAD
+    if (this.localVad) {
+      this.localVad.detach()
+      this.localVad = null
+    }
+
+    // Clean up remote VADs
+    this.remoteVads.forEach(vad => vad.detach())
+    this.remoteVads.clear()
+
     // Parar todas as tracks do stream local
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop())
@@ -175,17 +201,17 @@ class WebRTCService {
 
     // Limpar streams remotos
     this.remoteStreams.clear()
-    
+
     // Clean up TURN fallback tracking
     this.connectionAttempts.clear()
     this.usingTURNOnly.clear()
     this.iceConnectionStates.clear()
-    
+
     // Clean up connection statistics tracking
     this.connectionStartTimes.clear()
     this.connectionEstablishedTimes.clear()
     this.iceCandidateTypes.clear()
-    
+
     // Clean up reconnection tracking
     this.reconnectionTimeouts.forEach(timeout => clearTimeout(timeout))
     this.reconnectionTimeouts.clear()
@@ -229,16 +255,16 @@ class WebRTCService {
     pc.onnegotiationneeded = async () => {
       try {
         console.log('🔄 Negotiation needed for', userId)
-        
+
         // Only create offer if we're in stable state or have-local-offer
         if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
           console.log('⚠️ Skipping negotiation, signaling state:', pc.signalingState)
           return
         }
-        
+
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
-        
+
         console.log('📤 Sending renegotiation offer to', userId)
         wsService.send({
           type: 'voice:offer',
@@ -264,7 +290,7 @@ class WebRTCService {
           }
           console.log(`📊 ICE candidate type for ${userId}: ${candidateType}`)
         }
-        
+
         console.log('📤 Sending ICE candidate to', userId)
         wsService.send({
           type: 'voice:ice-candidate',
@@ -281,6 +307,15 @@ class WebRTCService {
       console.log('📥 Received remote track from', userId)
       const remoteStream = event.streams[0]
       this.remoteStreams.set(userId, remoteStream)
+
+      // Initialize VAD for remote stream
+      const remoteVad = new VoiceActivityDetector()
+      remoteVad.attachToStream(remoteStream)
+      remoteVad.onVoiceActivity((isActive, level) => {
+        this.emit('voice-activity', { userId, isActive, level })
+      })
+      this.remoteVads.set(userId, remoteVad)
+
       this.emit('remote-stream', { userId, stream: remoteStream })
     }
 
@@ -289,22 +324,22 @@ class WebRTCService {
       const iceState = pc.iceConnectionState
       console.log(`ICE connection state with ${userId}:`, iceState)
       this.iceConnectionStates.set(userId, iceState)
-      
+
       // Log connection establishment time when connected
       if (iceState === 'connected' && !this.connectionEstablishedTimes.has(userId)) {
         const startTime = this.connectionStartTimes.get(userId)
         if (startTime) {
           const establishmentTime = Date.now() - startTime
           this.connectionEstablishedTimes.set(userId, establishmentTime)
-          
+
           // Log connection statistics
           this.logConnectionStatistics(userId, establishmentTime)
-          
+
           // Start monitoring connection quality when connected
           connectionMonitor.startMonitoring(userId, pc)
         }
       }
-      
+
       // Detect connection failure and trigger TURN fallback
       if (iceState === 'failed' && !this.usingTURNOnly.get(userId)) {
         console.warn('⚠️ Direct P2P connection failed, attempting TURN fallback for', userId)
@@ -315,14 +350,14 @@ class WebRTCService {
     // Listener para mudanças de conexão
     pc.onconnectionstatechange = () => {
       console.log(`Connection state with ${userId}:`, pc.connectionState)
-      
+
       // Emit connection state changes for monitoring
-      this.emit('connection-state-change', { 
-        userId, 
+      this.emit('connection-state-change', {
+        userId,
         state: pc.connectionState,
-        iceState: pc.iceConnectionState 
+        iceState: pc.iceConnectionState
       })
-      
+
       // Trigger automatic reconnection on disconnected or failed state
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         console.log(`⚠️ Connection ${pc.connectionState} for ${userId}, attempting reconnection`)
@@ -350,14 +385,14 @@ class WebRTCService {
    */
   private extractCandidateType(candidate: RTCIceCandidate): string | null {
     if (!candidate.candidate) return null
-    
+
     // Parse candidate string to extract type
     // Format: "candidate:... typ host|srflx|relay ..."
     const match = candidate.candidate.match(/typ\s+(\w+)/)
     if (match && match[1]) {
       return match[1]
     }
-    
+
     return null
   }
 
@@ -367,7 +402,7 @@ class WebRTCService {
   private logConnectionStatistics(userId: string, establishmentTime: number): void {
     const candidateTypes = Array.from(this.iceCandidateTypes.get(userId) || [])
     const usingTURN = this.usingTURNOnly.get(userId) || candidateTypes.includes('relay')
-    
+
     const stats = {
       userId,
       establishmentTime,
@@ -375,12 +410,12 @@ class WebRTCService {
       usingTURN,
       timestamp: new Date().toISOString()
     }
-    
+
     console.log('📊 Connection Statistics:', stats)
     console.log(`📊 Connection established in ${establishmentTime}ms`)
     console.log(`📊 ICE candidate types used: ${candidateTypes.join(', ') || 'none yet'}`)
     console.log(`📊 TURN relay used: ${usingTURN ? 'YES' : 'NO'}`)
-    
+
     // Emit statistics event for external tracking/analytics
     this.emit('connection-statistics', stats)
   }
@@ -391,7 +426,7 @@ class WebRTCService {
   private async attemptTURNFallback(userId: string): Promise<void> {
     try {
       console.log('🔄 Attempting TURN fallback for', userId)
-      
+
       // Check if we have TURN servers configured
       const turnServers = this.getTURNOnlyServers()
       if (turnServers.length === 0) {
@@ -399,30 +434,30 @@ class WebRTCService {
         this.emit('turn-fallback-failed', { userId, reason: 'no-turn-servers' })
         return
       }
-      
+
       // Track connection attempt
       const attempts = (this.connectionAttempts.get(userId) || 0) + 1
       this.connectionAttempts.set(userId, attempts)
-      
+
       if (attempts > 1) {
         console.warn('⚠️ Already attempted TURN fallback for', userId)
         return
       }
-      
+
       // Close existing connection
       const existingPc = this.peerConnections.get(userId)
       if (existingPc) {
         existingPc.close()
         this.peerConnections.delete(userId)
       }
-      
+
       // Create new connection with TURN-only
       const pc = await this.createPeerConnection(userId, true)
-      
+
       // Create and send new offer with TURN-only
       const offer = await pc.createOffer({ iceRestart: true })
       await pc.setLocalDescription(offer)
-      
+
       console.log('📤 Sending TURN fallback offer to', userId)
       wsService.send({
         type: 'voice:offer',
@@ -431,9 +466,9 @@ class WebRTCService {
           offer: offer,
         }
       })
-      
+
       this.emit('turn-fallback-attempted', { userId })
-      
+
     } catch (error) {
       console.error('❌ TURN fallback failed for', userId, error)
       this.emit('turn-fallback-failed', { userId, error })
@@ -450,75 +485,75 @@ class WebRTCService {
       console.log('⚠️ Already attempting reconnection for', userId)
       return
     }
-    
+
     // Get current attempt count
     const attempts = this.reconnectionAttempts.get(userId) || 0
-    
+
     // Check if max attempts reached
     if (attempts >= this.maxReconnectionAttempts) {
       console.error(`❌ Max reconnection attempts (${this.maxReconnectionAttempts}) reached for ${userId}`)
       this.emit('reconnection-failed', { userId, attempts })
-      
+
       // Clean up
       this.reconnectionAttempts.delete(userId)
       this.handleUserLeft({ userId })
       return
     }
-    
+
     // Calculate backoff delay
     const delay = this.reconnectionBackoffs[attempts] || this.reconnectionBackoffs[this.reconnectionBackoffs.length - 1]
-    
+
     console.log(`🔄 Scheduling reconnection attempt ${attempts + 1}/${this.maxReconnectionAttempts} for ${userId} in ${delay}ms`)
-    
+
     // Emit reconnecting state
     this.emit('reconnecting', { userId, attempt: attempts + 1, maxAttempts: this.maxReconnectionAttempts })
-    
+
     // Schedule reconnection
     const timeout = setTimeout(async () => {
       try {
         console.log(`🔄 Executing reconnection attempt ${attempts + 1} for ${userId}`)
-        
+
         // Increment attempt counter
         this.reconnectionAttempts.set(userId, attempts + 1)
-        
+
         // Clear timeout reference
         this.reconnectionTimeouts.delete(userId)
-        
+
         // Check WebSocket connection first (Requirement 5.5)
         if (!wsService || (wsService as any).ws?.readyState !== WebSocket.OPEN) {
           console.warn('⚠️ WebSocket not connected, waiting for WebSocket reconnection before peer reconnection')
-          
+
           // Wait for WebSocket to reconnect (with timeout)
           const wsReconnectTimeout = 5000 // 5 seconds
           const wsReconnectStart = Date.now()
-          
+
           while ((wsService as any).ws?.readyState !== WebSocket.OPEN) {
             if (Date.now() - wsReconnectStart > wsReconnectTimeout) {
               throw new Error('WebSocket reconnection timeout')
             }
             await new Promise(resolve => setTimeout(resolve, 100))
           }
-          
+
           console.log('✅ WebSocket reconnected, proceeding with peer reconnection')
         }
-        
+
         // Close existing connection
         const existingPc = this.peerConnections.get(userId)
         if (existingPc) {
           existingPc.close()
           this.peerConnections.delete(userId)
         }
-        
+
         // Stop monitoring old connection
         connectionMonitor.stopMonitoring(userId)
-        
+
         // Create new peer connection
         const pc = await this.createPeerConnection(userId)
-        
+
         // Create and send new offer with ICE restart
         const offer = await pc.createOffer({ iceRestart: true })
         await pc.setLocalDescription(offer)
-        
+
         console.log('📤 Sending reconnection offer to', userId)
         wsService.send({
           type: 'voice:offer',
@@ -527,14 +562,14 @@ class WebRTCService {
             offer: offer,
           }
         })
-        
+
         // Emit reconnection attempt event
         this.emit('reconnection-attempted', { userId, attempt: attempts + 1 })
-        
+
       } catch (error) {
         console.error('❌ Reconnection attempt failed for', userId, error)
         this.reconnectionTimeouts.delete(userId)
-        
+
         // Try again if we haven't reached max attempts
         if (attempts + 1 < this.maxReconnectionAttempts) {
           this.attemptReconnection(userId)
@@ -545,7 +580,7 @@ class WebRTCService {
         }
       }
     }, delay)
-    
+
     this.reconnectionTimeouts.set(userId, timeout)
   }
 
@@ -555,17 +590,17 @@ class WebRTCService {
    */
   public manualReconnect(userId: string): void {
     console.log('🔄 Manual reconnection triggered for', userId)
-    
+
     // Clear any existing reconnection state
     const timeout = this.reconnectionTimeouts.get(userId)
     if (timeout) {
       clearTimeout(timeout)
       this.reconnectionTimeouts.delete(userId)
     }
-    
+
     // Reset attempt counter
     this.reconnectionAttempts.delete(userId)
-    
+
     // Trigger reconnection
     this.attemptReconnection(userId)
   }
@@ -573,12 +608,12 @@ class WebRTCService {
   // Handler: Recebeu lista de usuários já conectados
   private async handleExistingUsers(data: { users: Array<{ userId: string; username: string }> }) {
     console.log('👥 Received existing users:', data.users.length)
-    
+
     // Para cada usuário existente, criar conexão e enviar offer
     for (const user of data.users) {
       try {
         console.log('👤 Connecting to existing user:', user.username, 'userId:', user.userId)
-        
+
         // Criar conexão peer
         const pc = await this.createPeerConnection(user.userId)
 
@@ -605,7 +640,7 @@ class WebRTCService {
   // Handler: Novo usuário entrou no canal
   private async handleUserJoined(data: { userId: string; username: string }) {
     console.log('👤 User joined voice:', data.username, 'userId:', data.userId)
-    
+
     try {
       // Criar conexão peer
       const pc = await this.createPeerConnection(data.userId)
@@ -632,11 +667,11 @@ class WebRTCService {
   // Handler: Recebeu offer de outro usuário
   private async handleOffer(data: { userId: string; offer: RTCSessionDescriptionInit }) {
     console.log('📨 Received offer from', data.userId)
-    
+
     try {
       // Verificar se já existe uma conexão peer
       let pc = this.peerConnections.get(data.userId)
-      
+
       if (!pc) {
         // Se não existe, criar nova conexão
         pc = await this.createPeerConnection(data.userId)
@@ -644,7 +679,7 @@ class WebRTCService {
         // Se já existe, esta é uma renegociação
         console.log('🔄 Handling renegotiation offer from', data.userId)
       }
-      
+
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
 
       // Criar e enviar answer
@@ -667,7 +702,7 @@ class WebRTCService {
   // Handler: Recebeu answer de outro usuário
   private async handleAnswer(data: { userId: string; answer: RTCSessionDescriptionInit }) {
     console.log('📨 Received answer from', data.userId)
-    
+
     const pc = this.peerConnections.get(data.userId)
     if (pc) {
       try {
@@ -697,7 +732,7 @@ class WebRTCService {
   // Handler: Usuário saiu do canal
   private handleUserLeft(data: { userId: string }) {
     console.log('👋 User left voice:', data.userId)
-    
+
     const pc = this.peerConnections.get(data.userId)
     if (pc) {
       pc.close()
@@ -705,20 +740,27 @@ class WebRTCService {
     }
 
     this.remoteStreams.delete(data.userId)
-    
+
+    // Clean up remote VAD
+    const remoteVad = this.remoteVads.get(data.userId)
+    if (remoteVad) {
+      remoteVad.detach()
+      this.remoteVads.delete(data.userId)
+    }
+
     // Stop monitoring connection quality
     connectionMonitor.stopMonitoring(data.userId)
-    
+
     // Clean up TURN fallback tracking
     this.connectionAttempts.delete(data.userId)
     this.usingTURNOnly.delete(data.userId)
     this.iceConnectionStates.delete(data.userId)
-    
+
     // Clean up connection statistics tracking
     this.connectionStartTimes.delete(data.userId)
     this.connectionEstablishedTimes.delete(data.userId)
     this.iceCandidateTypes.delete(data.userId)
-    
+
     // Clean up reconnection tracking
     const timeout = this.reconnectionTimeouts.get(data.userId)
     if (timeout) {
@@ -726,7 +768,7 @@ class WebRTCService {
       this.reconnectionTimeouts.delete(data.userId)
     }
     this.reconnectionAttempts.delete(data.userId)
-    
+
     this.emit('user-left', data)
   }
 
@@ -734,9 +776,9 @@ class WebRTCService {
   private handleMuteStatus(data: any) {
     console.log('🔇 Mute status changed:', data.userId, data.isMuted || data.data?.isMuted)
     const isMuted = data.isMuted || data.data?.isMuted
-    this.emit('mute-status-changed', { 
-      userId: data.userId, 
-      isMuted: isMuted 
+    this.emit('mute-status-changed', {
+      userId: data.userId,
+      isMuted: isMuted
     })
   }
 
@@ -744,9 +786,9 @@ class WebRTCService {
   private handleVideoStatus(data: any) {
     console.log('📹 Video status changed:', data.userId, data.isVideoEnabled || data.data?.isVideoEnabled)
     const isVideoEnabled = data.isVideoEnabled || data.data?.isVideoEnabled
-    this.emit('video-status-changed', { 
-      userId: data.userId, 
-      isVideoEnabled: isVideoEnabled 
+    this.emit('video-status-changed', {
+      userId: data.userId,
+      isVideoEnabled: isVideoEnabled
     })
   }
 
@@ -758,9 +800,9 @@ class WebRTCService {
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled
       const isMuted = !audioTrack.enabled
-      
+
       console.log('🔇 Toggle mute:', isMuted)
-      
+
       // Notificar outros usuários
       if (this.currentChannelId) {
         wsService.send({
@@ -771,7 +813,7 @@ class WebRTCService {
           }
         })
       }
-      
+
       return isMuted
     }
     return false
@@ -784,9 +826,9 @@ class WebRTCService {
     const videoTrack = this.localStream.getVideoTracks()[0]
     if (videoTrack) {
       videoTrack.enabled = !videoTrack.enabled
-      
+
       console.log('📹 Toggle video:', videoTrack.enabled)
-      
+
       // Notificar outros usuários sobre o status
       if (this.currentChannelId) {
         wsService.send({
@@ -797,7 +839,7 @@ class WebRTCService {
           }
         })
       }
-      
+
       return videoTrack.enabled
     }
     return false
@@ -807,7 +849,7 @@ class WebRTCService {
   async addVideoTrack(): Promise<boolean> {
     try {
       console.log('📹 Adding video track...')
-      
+
       // Obter stream de vídeo
       const videoStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -818,15 +860,15 @@ class WebRTCService {
       })
 
       const videoTrack = videoStream.getVideoTracks()[0]
-      
+
       // Adicionar ao stream local
       if (this.localStream) {
         this.localStream.addTrack(videoTrack)
-        
+
         // Para cada conexão peer existente, verificar se já tem sender de vídeo
         for (const [userId, pc] of this.peerConnections.entries()) {
           const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
-          
+
           if (videoSender) {
             // Se já tem sender, apenas substituir a track
             console.log('🔄 Replacing video track for', userId)
@@ -837,10 +879,10 @@ class WebRTCService {
             pc.addTrack(videoTrack, this.localStream)
           }
         }
-        
+
         console.log('✅ Video track added')
         this.emit('local-stream', this.localStream)
-        
+
         // Notificar outros usuários sobre o status
         if (this.currentChannelId) {
           wsService.send({
@@ -851,10 +893,10 @@ class WebRTCService {
             }
           })
         }
-        
+
         return true
       }
-      
+
       return false
     } catch (error) {
       console.error('❌ Failed to add video track:', error)
@@ -866,7 +908,7 @@ class WebRTCService {
   async shareScreen(): Promise<boolean> {
     try {
       console.log('🖥️ Starting screen share...')
-      
+
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           cursor: 'always',
@@ -916,7 +958,7 @@ class WebRTCService {
   async stopScreenShare(): Promise<boolean> {
     try {
       console.log('🖥️ Stopping screen share...')
-      
+
       // Obter nova track de câmera
       const cameraStream = await navigator.mediaDevices.getUserMedia({
         video: {

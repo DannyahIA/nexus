@@ -18,9 +18,10 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoEnabled, setIsVideoEnabled] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [isLocalSpeaking, setIsLocalSpeaking] = useState(false)
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
-  
+
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideosRef = useRef<Map<string, HTMLVideoElement>>(new Map())
 
@@ -30,7 +31,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     if (stream) {
       setLocalStream(stream)
       setIsConnected(true)
-      
+
       // Exibir vídeo local
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
@@ -47,7 +48,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
 
     const handleRemoteStream = ({ userId, stream }: { userId: string; stream: MediaStream }) => {
       console.log('Remote stream received from', userId)
-      
+
       // Store the stream separately from voiceStore
       setRemoteStreams(prev => {
         const newMap = new Map(prev)
@@ -59,7 +60,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     const handleUserJoined = ({ userId, username }: { userId: string; username: string }) => {
       console.log('User joined:', username, 'userId:', userId)
       console.log('Current voiceUsers before add:', voiceStore.voiceUsers)
-      
+
       // Add user to voiceStore with username from event
       voiceStore.addVoiceUser({
         userId,
@@ -68,16 +69,16 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         isSpeaking: false,
         isVideoEnabled: false,
       })
-      
+
       console.log('Current voiceUsers after add:', voiceStore.voiceUsers)
     }
 
     const handleUserLeft = ({ userId }: { userId: string }) => {
       console.log('User left:', userId)
-      
+
       // Remove user from voiceStore
       voiceStore.removeVoiceUser(userId)
-      
+
       // Clean up remote stream
       setRemoteStreams(prev => {
         const newMap = new Map(prev)
@@ -88,37 +89,49 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
 
     const handleMuteStatusChanged = ({ userId, isMuted }: { userId: string; isMuted: boolean }) => {
       console.log('Mute status changed:', userId, isMuted)
-      
+
       // Update user in voiceStore
       voiceStore.updateVoiceUser(userId, { isMuted })
     }
 
     const handleVideoStatusChanged = ({ userId, isVideoEnabled }: { userId: string; isVideoEnabled: boolean }) => {
       console.log('Video status changed:', userId, isVideoEnabled)
-      
+
       // Update user in voiceStore
       voiceStore.updateVoiceUser(userId, { isVideoEnabled })
     }
 
     const handleConnectionQualityChange = ({ userId, quality }: { userId: string; quality: any }) => {
       console.log('Connection quality changed:', userId, quality.quality)
-      
+
       // Update connection quality in voiceStore
       voiceStore.setConnectionQuality(userId, quality)
     }
 
     const handleReconnecting = ({ userId, attempt, maxAttempts }: { userId: string; attempt: number; maxAttempts: number }) => {
       console.log(`User ${userId} reconnecting: attempt ${attempt}/${maxAttempts}`)
-      
+
       // Update reconnection state in voiceStore
       voiceStore.setUserReconnecting(userId, attempt, maxAttempts)
     }
 
     const handleReconnectionFailed = ({ userId }: { userId: string }) => {
       console.log(`User ${userId} reconnection failed`)
-      
+
       // Clear reconnection state
       voiceStore.clearUserReconnecting(userId)
+    }
+
+    const handleVoiceActivity = ({ userId, isActive }: { userId: string; isActive: boolean }) => {
+      if (userId === 'local') {
+        // Only show speaking indicator if not muted
+        setIsLocalSpeaking(isActive && !isMuted)
+      } else {
+        // Only show speaking indicator if remote user is not muted
+        const voiceUser = voiceStore.voiceUsers.find(u => u.userId === userId)
+        const shouldShowSpeaking = isActive && !voiceUser?.isMuted
+        voiceStore.updateVoiceUser(userId, { isSpeaking: shouldShowSpeaking })
+      }
     }
 
     webrtcService.on('local-stream', handleLocalStream)
@@ -130,6 +143,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     webrtcService.on('connection-quality-change', handleConnectionQualityChange)
     webrtcService.on('reconnecting', handleReconnecting)
     webrtcService.on('reconnection-failed', handleReconnectionFailed)
+    webrtcService.on('voice-activity', handleVoiceActivity)
 
     return () => {
       webrtcService.off('local-stream', handleLocalStream)
@@ -141,6 +155,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       webrtcService.off('connection-quality-change', handleConnectionQualityChange)
       webrtcService.off('reconnecting', handleReconnecting)
       webrtcService.off('reconnection-failed', handleReconnectionFailed)
+      webrtcService.off('voice-activity', handleVoiceActivity)
       // NÃO chamar leaveVoiceChannel aqui - deixar o ChatScreen gerenciar
     }
   }, [channelId])
@@ -253,6 +268,9 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
               <div className="absolute top-2 right-2 bg-red-600 p-2 rounded-full">
                 <MicOff className="w-4 h-4" />
               </div>
+            )}
+            {isLocalSpeaking && !isMuted && (
+              <div className="absolute inset-0 border-4 border-green-500 rounded-lg pointer-events-none"></div>
             )}
           </div>
 
@@ -368,11 +386,10 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         {/* Mute */}
         <button
           onClick={handleToggleMute}
-          className={`p-4 rounded-full transition-colors ${
-            isMuted
-              ? 'bg-red-600 hover:bg-red-700'
-              : 'bg-dark-700 hover:bg-dark-600'
-          }`}
+          className={`p-4 rounded-full transition-colors ${isMuted
+            ? 'bg-red-600 hover:bg-red-700'
+            : 'bg-dark-700 hover:bg-dark-600'
+            }`}
           title={isMuted ? 'Desmutar' : 'Mutar'}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -381,11 +398,10 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         {/* Video */}
         <button
           onClick={handleToggleVideo}
-          className={`p-4 rounded-full transition-colors ${
-            !isVideoEnabled
-              ? 'bg-red-600 hover:bg-red-700'
-              : 'bg-dark-700 hover:bg-dark-600'
-          }`}
+          className={`p-4 rounded-full transition-colors ${!isVideoEnabled
+            ? 'bg-red-600 hover:bg-red-700'
+            : 'bg-dark-700 hover:bg-dark-600'
+            }`}
           title={isVideoEnabled ? 'Desligar câmera' : 'Ligar câmera'}
         >
           {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
@@ -394,11 +410,10 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         {/* Screen Share */}
         <button
           onClick={handleShareScreen}
-          className={`p-4 rounded-full transition-colors ${
-            isScreenSharing
-              ? 'bg-primary-600 hover:bg-primary-700'
-              : 'bg-dark-700 hover:bg-dark-600'
-          }`}
+          className={`p-4 rounded-full transition-colors ${isScreenSharing
+            ? 'bg-primary-600 hover:bg-primary-700'
+            : 'bg-dark-700 hover:bg-dark-600'
+            }`}
           title="Compartilhar tela"
         >
           <Monitor className="w-5 h-5" />

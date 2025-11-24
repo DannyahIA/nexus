@@ -13,11 +13,11 @@ export class VoiceActivityDetector {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private dataArray: Uint8Array | null = null;
   private animationFrameId: number | null = null;
-  
+
   private threshold: number = -50; // dB
   private smoothingFactor: number = 0.8;
   private callback: VoiceActivityCallback | null = null;
-  
+
   private isActive: boolean = false;
   private currentLevel: number = -Infinity;
 
@@ -26,23 +26,23 @@ export class VoiceActivityDetector {
    */
   attachToStream(stream: MediaStream): void {
     this.detach(); // Clean up any existing connection
-    
+
     try {
       // Create audio context
       this.audioContext = new AudioContext();
-      
+
       // Create analyser node
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 512;
       this.analyser.smoothingTimeConstant = this.smoothingFactor;
-      
+
       // Create source from stream
       this.sourceNode = this.audioContext.createMediaStreamSource(stream);
       this.sourceNode.connect(this.analyser);
-      
+
       // Create data array for frequency data
       this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-      
+
       // Start monitoring
       this.startMonitoring();
     } catch (error) {
@@ -59,17 +59,17 @@ export class VoiceActivityDetector {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
-    
+
     if (this.sourceNode) {
       this.sourceNode.disconnect();
       this.sourceNode = null;
     }
-    
+
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
-    
+
     this.analyser = null;
     this.dataArray = null;
     this.isActive = false;
@@ -105,36 +105,36 @@ export class VoiceActivityDetector {
       if (!this.analyser || !this.dataArray) {
         return;
       }
-      
+
       // Get frequency data
       this.analyser.getByteFrequencyData(this.dataArray);
-      
+
       // Calculate average level
       let sum = 0;
       for (let i = 0; i < this.dataArray.length; i++) {
         sum += this.dataArray[i];
       }
       const average = sum / this.dataArray.length;
-      
+
       // Convert to dB (0-255 range to dB)
       // 0 = silence, 255 = max volume
       const db = average > 0 ? 20 * Math.log10(average / 255) : -Infinity;
-      
+
       this.currentLevel = db;
-      
+
       // Check if voice activity detected
       const wasActive = this.isActive;
       this.isActive = db > this.threshold;
-      
+
       // Notify callback if state changed or level updated
       if (this.callback && (wasActive !== this.isActive || this.isActive)) {
         this.callback(this.isActive, db);
       }
-      
+
       // Continue monitoring
       this.animationFrameId = requestAnimationFrame(monitor);
     };
-    
+
     monitor();
   }
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { api } from '../services/api'
 
 interface User {
   id: string
@@ -27,19 +28,9 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (username: string, password: string) => {
         try {
-          const response = await fetch('http://localhost:8000/api/auth/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ username, password }),
-          })
+          const response = await api.login(username, password)
+          const data = response.data
 
-          if (!response.ok) {
-            throw new Error('Login failed')
-          }
-
-          const data = await response.json()
           // Backend retorna: { token, user_id, username, email }
           set({
             user: {
@@ -58,20 +49,9 @@ export const useAuthStore = create<AuthState>()(
 
       register: async (email: string, username: string, password: string) => {
         try {
-          const response = await fetch('https://nexus-api.eclipsiasoftware.com/api/auth/register', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ email, username, password }),
-          })
+          const response = await api.register(username, email, password)
+          const data = response.data
 
-          if (!response.ok) {
-            const errorData = await response.json()
-            throw { response: { data: errorData } }
-          }
-
-          const data = await response.json()
           // Backend retorna: { token, user_id, username, email }
           set({
             user: {
