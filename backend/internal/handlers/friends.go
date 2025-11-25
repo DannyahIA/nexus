@@ -340,3 +340,55 @@ func (fh *FriendHandler) RemoveFriend(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// GetDMs retorna as conversas diretas do usuário
+func (fh *FriendHandler) GetDMs(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*models.Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// TODO: Implement GetUserDMs in database
+	response := []interface{}{}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// CreateDM cria uma nova conversa direta
+func (fh *FriendHandler) CreateDM(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*models.Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		FriendID string `json:"friendId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.FriendID == "" {
+		http.Error(w, "friend ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: Implement CreateDMChannel in database
+	channelID := uuid.Must(uuid.NewV4()).String()
+
+	response := map[string]interface{}{
+		"id":       channelID,
+		"type":     "dm",
+		"userId":   claims.UserID,
+		"friendId": req.FriendID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}

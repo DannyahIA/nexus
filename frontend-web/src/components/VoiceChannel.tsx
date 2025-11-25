@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Volume2, Settings } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Volume2, Settings, Grid, User } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
 import { useAuthStore } from '../store/authStore'
 import { useVoiceStore } from '../store/voiceStore'
-import ConnectionQualityIndicator from './ConnectionQualityIndicator'
+import VideoGrid from './VideoGrid'
+import { ViewMode } from '../store/voiceStore'
 
 interface VoiceChannelProps {
   channelId: string
@@ -21,9 +22,9 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
   const [isLocalSpeaking, setIsLocalSpeaking] = useState(false)
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
-
-  const localVideoRef = useRef<HTMLVideoElement>(null)
-  const remoteVideosRef = useRef<Map<string, HTMLVideoElement>>(new Map())
+  
+  // Track previous view mode before screen share (Requirement 4.5)
+  const previousViewModeRef = useRef<ViewMode>('gallery')
 
   useEffect(() => {
     // Obter stream local já existente (foi criado no ChatScreen)
@@ -31,19 +32,11 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     if (stream) {
       setLocalStream(stream)
       setIsConnected(true)
-
-      // Exibir vídeo local
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
-      }
     }
 
     // Listeners para eventos WebRTC
     const handleLocalStream = (stream: MediaStream) => {
       setLocalStream(stream)
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
-      }
     }
 
     const handleRemoteStream = ({ userId, stream }: { userId: string; stream: MediaStream }) => {
@@ -101,6 +94,55 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       voiceStore.updateVoiceUser(userId, { isVideoEnabled })
     }
 
+    const handleVideoStateChange = (state: { isEnabled: boolean; type: 'camera' | 'screen' | 'none' }) => {
+      console.log('Local video state changed:', state)
+
+      // Update local video state
+      setIsVideoEnabled(state.isEnabled)
+      setIsScreenSharing(state.type === 'screen')
+
+      // Update voice store with new video state
+      voiceStore.setVideoState(state)
+
+      // Update screen share user tracking
+      if (state.type === 'screen') {
+        voiceStore.setScreenShareUser(user?.id || null)
+      } else if (isScreenSharing) {
+        // Only clear if we were previously screen sharing
+        voiceStore.setScreenShareUser(null)
+      }
+    }
+
+    const handleScreenShareStarted = () => {
+      console.log('Screen share started')
+      setIsScreenSharing(true)
+      if (user?.id) {
+        voiceStore.setScreenShareUser(user.id)
+      }
+      
+      // Requirement 4.4: Automatically switch to spotlight mode when screen share starts
+      previousViewModeRef.current = voiceStore.viewMode
+      if (voiceStore.viewMode !== 'spotlight') {
+        console.log('📺 Switching to spotlight mode for screen share')
+        voiceStore.setViewMode('spotlight')
+      }
+    }
+
+    const handleScreenShareStopped = () => {
+      console.log('Screen share stopped')
+      setIsScreenSharing(false)
+      voiceStore.setScreenShareUser(null)
+      
+      // Requirement 4.5: Return to previous view mode when screen share ends
+      console.log('📺 Restoring previous view mode:', previousViewModeRef.current)
+      voiceStore.setViewMode(previousViewModeRef.current)
+    }
+
+    const handleVideoError = ({ error }: { error: string }) => {
+      console.error('Video error:', error)
+      alert(error)
+    }
+
     const handleConnectionQualityChange = ({ userId, quality }: { userId: string; quality: any }) => {
       console.log('Connection quality changed:', userId, quality.quality)
 
@@ -134,16 +176,39 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       }
     }
 
+    const handleActiveSpeakerChange = ({ activeSpeaker }: { previousSpeaker: string | null; activeSpeaker: string | null }) => {
+      console.log('Active speaker changed to:', activeSpeaker)
+      
+      // Convert 'local' to actual user ID for consistency
+      const speakerId = activeSpeaker === 'local' ? (user?.id || null) : activeSpeaker
+      
+      // Update voice store with new active speaker
+      voiceStore.setActiveSpeaker(speakerId)
+    }
+
+    const handleMuteStateChange = ({ isMuted }: { isMuted: boolean }) => {
+      console.log('Local mute state changed:', isMuted)
+      
+      // Update local mute state
+      setIsMuted(isMuted)
+    }
+
     webrtcService.on('local-stream', handleLocalStream)
     webrtcService.on('remote-stream', handleRemoteStream)
     webrtcService.on('user-joined', handleUserJoined)
     webrtcService.on('user-left', handleUserLeft)
     webrtcService.on('mute-status-changed', handleMuteStatusChanged)
     webrtcService.on('video-status-changed', handleVideoStatusChanged)
+    webrtcService.on('video-state-change', handleVideoStateChange)
+    webrtcService.on('screen-share-started', handleScreenShareStarted)
+    webrtcService.on('screen-share-stopped', handleScreenShareStopped)
+    webrtcService.on('video-error', handleVideoError)
     webrtcService.on('connection-quality-change', handleConnectionQualityChange)
     webrtcService.on('reconnecting', handleReconnecting)
     webrtcService.on('reconnection-failed', handleReconnectionFailed)
     webrtcService.on('voice-activity', handleVoiceActivity)
+    webrtcService.on('active-speaker-change', handleActiveSpeakerChange)
+    webrtcService.on('mute-state-change', handleMuteStateChange)
 
     return () => {
       webrtcService.off('local-stream', handleLocalStream)
@@ -152,23 +217,19 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       webrtcService.off('user-left', handleUserLeft)
       webrtcService.off('mute-status-changed', handleMuteStatusChanged)
       webrtcService.off('video-status-changed', handleVideoStatusChanged)
+      webrtcService.off('video-state-change', handleVideoStateChange)
+      webrtcService.off('screen-share-started', handleScreenShareStarted)
+      webrtcService.off('screen-share-stopped', handleScreenShareStopped)
+      webrtcService.off('video-error', handleVideoError)
       webrtcService.off('connection-quality-change', handleConnectionQualityChange)
       webrtcService.off('reconnecting', handleReconnecting)
       webrtcService.off('reconnection-failed', handleReconnectionFailed)
       webrtcService.off('voice-activity', handleVoiceActivity)
+      webrtcService.off('active-speaker-change', handleActiveSpeakerChange)
+      webrtcService.off('mute-state-change', handleMuteStateChange)
       // NÃO chamar leaveVoiceChannel aqui - deixar o ChatScreen gerenciar
     }
-  }, [channelId])
-
-  // Atualizar vídeos remotos quando streams mudarem
-  useEffect(() => {
-    remoteStreams.forEach((stream, userId) => {
-      const videoElement = remoteVideosRef.current.get(userId)
-      if (videoElement) {
-        videoElement.srcObject = stream
-      }
-    })
-  }, [remoteStreams])
+  }, [channelId, user?.id])
 
   const handleToggleMute = () => {
     const newMuted = webrtcService.toggleMute()
@@ -176,44 +237,54 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
   }
 
   const handleToggleVideo = async () => {
-    if (!isVideoEnabled && !localStream?.getVideoTracks().length) {
-      // Precisa obter permissão de vídeo
-      try {
-        const success = await webrtcService.addVideoTrack()
-        if (success) {
-          setIsVideoEnabled(true)
-          // Atualizar stream local
-          const stream = webrtcService.getLocalStream()
-          setLocalStream(stream)
-        }
-      } catch (error) {
-        console.error('Failed to enable video:', error)
-        alert('Não foi possível acessar a câmera')
-      }
-    } else {
-      const newVideoEnabled = webrtcService.toggleVideo()
-      setIsVideoEnabled(newVideoEnabled)
+    try {
+      // Requirement 5.1: Video toggle button reflects camera/screen state
+      // State is managed by WebRTC Service and synced via events
+      await webrtcService.toggleVideo()
+      
+      // Update stream local
+      const stream = webrtcService.getLocalStream()
+      setLocalStream(stream)
+    } catch (error) {
+      console.error('Failed to toggle video:', error)
+      // Error will be handled by video-error event listener
     }
   }
 
   const handleShareScreen = async () => {
-    if (isScreenSharing) {
-      // Parar compartilhamento e voltar para câmera
-      const success = await webrtcService.stopScreenShare()
-      if (success) {
-        setIsScreenSharing(false)
+    try {
+      // Requirement 5.2, 5.3: Screen share button with distinct active state
+      // State is managed by WebRTC Service and synced via events
+      if (isScreenSharing) {
+        // Stop screen sharing and return to camera
+        await webrtcService.stopScreenShare()
+        // State will be updated by screen-share-stopped and video-state-change events
+      } else {
+        await webrtcService.shareScreen()
+        // State will be updated by screen-share-started and video-state-change events
       }
-    } else {
-      const success = await webrtcService.shareScreen()
-      if (success) {
-        setIsScreenSharing(true)
-      }
+    } catch (error) {
+      console.error('Failed to toggle screen share:', error)
+      // Error will be handled by video-error event listener
     }
   }
 
   const handleLeave = () => {
     webrtcService.leaveVoiceChannel()
     onLeave()
+  }
+
+  const handleViewModeToggle = () => {
+    // Toggle between gallery and spotlight modes
+    const newMode: ViewMode = voiceStore.viewMode === 'gallery' ? 'spotlight' : 'gallery'
+    console.log('📺 Toggling view mode to:', newMode)
+    
+    // Update previous view mode ref if not currently screen sharing
+    if (!isScreenSharing) {
+      previousViewModeRef.current = newMode
+    }
+    
+    voiceStore.setViewMode(newMode)
   }
 
   if (!isConnected) {
@@ -240,189 +311,127 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         </div>
       </div>
 
-      {/* Video Grid */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Local Video */}
-          <div className="relative bg-dark-800 rounded-lg overflow-hidden aspect-video">
-            {isVideoEnabled ? (
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-dark-700">
-                <div className="w-24 h-24 rounded-full bg-primary-600 flex items-center justify-center text-4xl font-bold mb-4">
-                  {user?.username?.charAt(0).toUpperCase() || 'U'}
-                </div>
-                <div className="text-lg font-medium">{user?.username}</div>
-              </div>
-            )}
-            <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-1 rounded text-sm">
-              {user?.username} (você)
-            </div>
-            {isMuted && (
-              <div className="absolute top-2 right-2 bg-red-600 p-2 rounded-full">
-                <MicOff className="w-4 h-4" />
-              </div>
-            )}
-            {isLocalSpeaking && !isMuted && (
-              <div className="absolute inset-0 border-4 border-green-500 rounded-lg pointer-events-none"></div>
-            )}
-          </div>
+      {/* Video Grid - Using new VideoGrid component */}
+      <VideoGrid
+        localStream={localStream}
+        remoteStreams={remoteStreams}
+        voiceUsers={voiceStore.voiceUsers}
+        currentUserId={user?.id || ''}
+        currentUsername={user?.username || 'User'}
+        viewMode={voiceStore.viewMode}
+        activeSpeakerId={voiceStore.activeSpeakerId}
+        screenShareUserId={voiceStore.screenShareUserId}
+        connectionQualities={voiceStore.connectionQualities}
+        isLocalMuted={isMuted}
+        isLocalVideoEnabled={isVideoEnabled}
+        isLocalSpeaking={isLocalSpeaking}
+        isLocalScreenSharing={isScreenSharing}
+      />
 
-          {/* Remote Videos */}
-          {voiceStore.voiceUsers.map(voiceUser => {
-            const stream = remoteStreams.get(voiceUser.userId)
-            const quality = voiceStore.connectionQualities.get(voiceUser.userId)
-            return (
-              <div key={voiceUser.userId} className="relative bg-dark-800 rounded-lg overflow-hidden aspect-video">
-                {/* Always render video element for audio, but hide if video is disabled */}
-                <video
-                  ref={el => {
-                    if (el) {
-                      remoteVideosRef.current.set(voiceUser.userId, el)
-                      // Set stream immediately when element is created
-                      if (stream) {
-                        el.srcObject = stream
-                      }
-                    }
-                  }}
-                  autoPlay
-                  playsInline
-                  className={voiceUser.isVideoEnabled ? "w-full h-full object-cover" : "hidden"}
-                />
-                {!voiceUser.isVideoEnabled && (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-dark-700">
-                    <div className="w-24 h-24 rounded-full bg-primary-600 flex items-center justify-center text-4xl font-bold mb-4">
-                      {voiceUser.username?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div className="text-lg font-medium">{voiceUser.username}</div>
-                  </div>
-                )}
-                <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-1 rounded text-sm">
-                  {voiceUser.username}
-                </div>
-                {voiceUser.isMuted && (
-                  <div className="absolute top-2 right-2 bg-red-600 p-2 rounded-full">
-                    <MicOff className="w-4 h-4" />
-                  </div>
-                )}
-                {/* Connection Quality Indicator */}
-                <div className="absolute top-2 left-2">
-                  <ConnectionQualityIndicator
-                    userId={voiceUser.userId}
-                    quality={quality || null}
-                    showDetails={false}
-                  />
-                </div>
-                {voiceUser.isSpeaking && (
-                  <div className="absolute inset-0 border-4 border-green-500 rounded-lg pointer-events-none"></div>
-                )}
-                {/* Warning for poor quality */}
-                {quality && (quality.quality === 'poor' || quality.quality === 'critical') && (
-                  <div className="absolute bottom-2 right-2 bg-yellow-600/90 px-2 py-1 rounded text-xs">
-                    Poor connection
-                  </div>
-                )}
-                {/* Error state - connection failed */}
-                {quality && (quality.state === 'failed' || quality.state === 'closed') && !voiceStore.reconnectingUsers.has(voiceUser.userId) && (
-                  <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3">
-                    <div className="text-red-500 text-center">
-                      <div className="text-lg font-semibold mb-1">Connection Lost</div>
-                      <div className="text-sm text-dark-300">Unable to connect to {voiceUser.username}</div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        console.log('Manual reconnect requested for', voiceUser.userId)
-                        webrtcService.manualReconnect(voiceUser.userId)
-                      }}
-                      className="px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded text-sm font-medium transition-colors"
-                    >
-                      Reconnect
-                    </button>
-                  </div>
-                )}
-                {/* Reconnecting state */}
-                {quality && quality.state === 'connecting' && (
-                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-2"></div>
-                      <div className="text-sm text-dark-300">Connecting...</div>
-                    </div>
-                  </div>
-                )}
-                {/* Disconnected state */}
-                {quality && quality.state === 'disconnected' && (
-                  <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                    <div className="text-center text-orange-500">
-                      <div className="text-sm font-medium">Reconnecting...</div>
-                    </div>
-                  </div>
-                )}
-                {/* Reconnection attempt indicator */}
-                {voiceStore.reconnectingUsers.has(voiceUser.userId) && (
-                  <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mb-2"></div>
-                    <div className="text-center">
-                      <div className="text-sm font-medium text-primary-400">Reconnecting...</div>
-                      <div className="text-xs text-dark-400 mt-1">
-                        Attempt {voiceStore.reconnectingUsers.get(voiceUser.userId)?.attempt} of {voiceStore.reconnectingUsers.get(voiceUser.userId)?.maxAttempts}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Controls */}
+      {/* Controls - Requirements 5.1, 5.2, 5.3 */}
       <div className="h-20 bg-dark-800 border-t border-dark-700 flex items-center justify-center gap-4 px-4">
-        {/* Mute */}
+        {/* Mute Toggle */}
         <button
           onClick={handleToggleMute}
-          className={`p-4 rounded-full transition-colors ${isMuted
-            ? 'bg-red-600 hover:bg-red-700'
-            : 'bg-dark-700 hover:bg-dark-600'
-            }`}
-          title={isMuted ? 'Desmutar' : 'Mutar'}
+          className={`control-button ${isMuted ? 'control-button-muted' : 'bg-dark-700 hover:bg-dark-600'}`}
+          title={isMuted ? 'Unmute microphone (Ctrl+D)' : 'Mute microphone (Ctrl+D)'}
+          aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {/* Video */}
+        {/* Video Toggle - Requirement 5.1: Reflects camera/screen state */}
         <button
           onClick={handleToggleVideo}
-          className={`p-4 rounded-full transition-colors ${!isVideoEnabled
-            ? 'bg-red-600 hover:bg-red-700'
-            : 'bg-dark-700 hover:bg-dark-600'
+          className={`control-button ${
+            !isVideoEnabled
+              ? 'control-button-video-off'
+              : voiceStore.videoState.type === 'screen'
+              ? 'bg-blue-600 hover:bg-blue-700'
+              : 'bg-dark-700 hover:bg-dark-600'
             }`}
-          title={isVideoEnabled ? 'Desligar câmera' : 'Ligar câmera'}
+          title={
+            voiceStore.videoState.type === 'screen'
+              ? 'Turn off screen share (Ctrl+E)'
+              : isVideoEnabled
+              ? 'Turn off camera (Ctrl+E)'
+              : 'Turn on camera (Ctrl+E)'
+          }
+          aria-label={
+            voiceStore.videoState.type === 'screen'
+              ? 'Screen sharing active'
+              : isVideoEnabled
+              ? 'Camera on'
+              : 'Camera off'
+          }
         >
-          {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          {voiceStore.videoState.type === 'screen' ? (
+            <Monitor className="w-5 h-5" />
+          ) : isVideoEnabled ? (
+            <Video className="w-5 h-5" />
+          ) : (
+            <VideoOff className="w-5 h-5" />
+          )}
+          {/* Visual indicator for screen share via video button */}
+          {voiceStore.videoState.type === 'screen' && (
+            <span className="indicator-dot bg-blue-400" />
+          )}
         </button>
 
-        {/* Screen Share */}
+        {/* Screen Share Toggle - Requirements 5.2, 5.3: Distinct active state */}
         <button
           onClick={handleShareScreen}
-          className={`p-4 rounded-full transition-colors ${isScreenSharing
-            ? 'bg-primary-600 hover:bg-primary-700'
-            : 'bg-dark-700 hover:bg-dark-600'
-            }`}
-          title="Compartilhar tela"
+          className={`control-button ${isScreenSharing ? 'control-button-screen-sharing' : 'bg-dark-700 hover:bg-dark-600'}`}
+          title={
+            isScreenSharing 
+              ? 'Stop sharing screen' 
+              : 'Share your screen'
+          }
+          aria-label={
+            isScreenSharing 
+              ? 'Stop screen sharing' 
+              : 'Start screen sharing'
+          }
         >
           <Monitor className="w-5 h-5" />
+          {/* Pulsing indicator when screen sharing is active */}
+          {isScreenSharing && (
+            <span className="indicator-dot bg-green-400" />
+          )}
+        </button>
+
+        {/* View Mode Toggle */}
+        <button
+          onClick={handleViewModeToggle}
+          disabled={isScreenSharing}
+          className={`view-mode-toggle ${voiceStore.viewMode === 'spotlight' && !isScreenSharing ? 'view-mode-toggle-active' : ''}`}
+          title={
+            isScreenSharing 
+              ? 'View mode locked during screen share'
+              : voiceStore.viewMode === 'gallery' 
+              ? 'Switch to Spotlight mode' 
+              : 'Switch to Gallery mode'
+          }
+          aria-label={
+            isScreenSharing 
+              ? 'View mode locked'
+              : voiceStore.viewMode === 'gallery' 
+              ? 'Switch to Spotlight mode' 
+              : 'Switch to Gallery mode'
+          }
+        >
+          {voiceStore.viewMode === 'gallery' ? (
+            <User className="w-5 h-5" />
+          ) : (
+            <Grid className="w-5 h-5" />
+          )}
         </button>
 
         {/* Settings */}
         <button
-          className="p-4 rounded-full bg-dark-700 hover:bg-dark-600 transition-colors"
-          title="Configurações"
+          className="control-button bg-dark-700 hover:bg-dark-600"
+          title="Audio and video settings"
+          aria-label="Audio and video settings"
         >
           <Settings className="w-5 h-5" />
         </button>
@@ -430,8 +439,9 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         {/* Disconnect */}
         <button
           onClick={handleLeave}
-          className="p-4 rounded-full bg-red-600 hover:bg-red-700 transition-colors ml-4"
-          title="Desconectar"
+          className="control-button bg-red-600 hover:bg-red-700 ml-4"
+          title="Leave voice channel"
+          aria-label="Leave voice channel"
         >
           <PhoneOff className="w-5 h-5" />
         </button>

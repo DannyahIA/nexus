@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { ConnectionQuality } from '../services/connectionMonitor'
 
+export type VideoTrackType = 'camera' | 'screen' | 'none'
+export type ViewMode = 'gallery' | 'spotlight'
+
+export interface VideoState {
+  isEnabled: boolean
+  type: VideoTrackType
+}
+
 interface VoiceState {
   // Estado de conexão
   isConnected: boolean
@@ -12,6 +20,18 @@ interface VoiceState {
   isMuted: boolean
   isVideoEnabled: boolean
   isScreenSharing: boolean
+  
+  // Video state tracking (enhanced)
+  videoState: VideoState
+  
+  // View mode tracking
+  viewMode: ViewMode
+  
+  // Active speaker tracking
+  activeSpeakerId: string | null
+  
+  // Screen sharing tracking
+  screenShareUserId: string | null
   
   // Usuários no canal
   voiceUsers: VoiceUser[]
@@ -29,6 +49,10 @@ interface VoiceState {
   setMuted: (muted: boolean) => void
   setVideoEnabled: (enabled: boolean) => void
   setScreenSharing: (sharing: boolean) => void
+  setVideoState: (state: VideoState) => void
+  setViewMode: (mode: ViewMode) => void
+  setActiveSpeaker: (userId: string | null) => void
+  setScreenShareUser: (userId: string | null) => void
   addVoiceUser: (user: VoiceUser) => void
   removeVoiceUser: (userId: string) => void
   updateVoiceUser: (userId: string, updates: Partial<VoiceUser>) => void
@@ -53,6 +77,13 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   isMuted: false,
   isVideoEnabled: false,
   isScreenSharing: false,
+  videoState: {
+    isEnabled: false,
+    type: 'none',
+  },
+  viewMode: 'gallery',
+  activeSpeakerId: null,
+  screenShareUserId: null,
   voiceUsers: [],
   connectionQualities: new Map(),
   reconnectingUsers: new Map(),
@@ -74,6 +105,13 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       isMuted: false,
       isVideoEnabled: false,
       isScreenSharing: false,
+      videoState: {
+        isEnabled: false,
+        type: 'none',
+      },
+      viewMode: 'gallery',
+      activeSpeakerId: null,
+      screenShareUserId: null,
       voiceUsers: [],
       connectionQualities: new Map(),
       reconnectingUsers: new Map(),
@@ -86,6 +124,18 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setVideoEnabled: (enabled) => set({ isVideoEnabled: enabled }),
   
   setScreenSharing: (sharing) => set({ isScreenSharing: sharing }),
+  
+  setVideoState: (state) => set({ 
+    videoState: state,
+    isVideoEnabled: state.isEnabled,
+    isScreenSharing: state.type === 'screen',
+  }),
+  
+  setViewMode: (mode) => set({ viewMode: mode }),
+  
+  setActiveSpeaker: (userId) => set({ activeSpeakerId: userId }),
+  
+  setScreenShareUser: (userId) => set({ screenShareUserId: userId }),
   
   addVoiceUser: (user) =>
     set((state) => {

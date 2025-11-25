@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/nexus/backend/internal/cache"
+	"github.com/nexus/backend/internal/middleware"
 )
 
 // WebSocketMessage representa uma mensagem WebSocket
@@ -74,14 +75,8 @@ type WebSocketServer struct {
 	logger        *zap.Logger
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// TODO: Implementar validação de origin em produção
-		return true
-	},
-}
+// upgrader will be initialized in main() with proper CORS configuration
+var upgrader websocket.Upgrader
 
 // NewWebSocketServer cria um novo servidor WebSocket
 func NewWebSocketServer(nc *nats.Conn, logger *zap.Logger) *WebSocketServer {
@@ -647,6 +642,42 @@ func main() {
 		log.Fatalf("failed to create logger: %v", err)
 	}
 	defer logger.Sync()
+
+	// Setup CORS configuration
+	corsConfig := middleware.NewCORSConfig(logger)
+
+	// Initialize WebSocket upgrader with CORS-aware CheckOrigin
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			
+			// Log the origin for debugging
+			logger.Info("WebSocket connection attempt",
+				zap.String("origin", origin),
+				zap.String("remoteAddr", r.RemoteAddr))
+
+			// Check if origin is allowed using CORS config
+			for _, allowed := range corsConfig.AllowedOrigins {
+				if allowed == "*" {
+					logger.Debug("WebSocket connection allowed (wildcard)")
+					return true
+				}
+				if allowed == origin {
+					logger.Debug("WebSocket connection allowed",
+						zap.String("origin", origin))
+					return true
+				}
+			}
+
+			// Origin not allowed
+			logger.Warn("WebSocket connection rejected - origin not allowed",
+				zap.String("origin", origin),
+				zap.Strings("allowedOrigins", corsConfig.AllowedOrigins))
+			return false
+		},
+	}
 
 	// Conectar ao NATS
 	natsURL := os.Getenv("NATS_URL")

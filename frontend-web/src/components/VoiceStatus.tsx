@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Mic, MicOff, PhoneOff, Settings } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
 import { useAuthStore } from '../store/authStore'
@@ -11,6 +11,19 @@ interface VoiceStatusProps {
 export default function VoiceStatus({ channelName, onDisconnect }: VoiceStatusProps) {
   const user = useAuthStore((state) => state.user)
   const [isMuted, setIsMuted] = useState(false)
+
+  // Subscribe to mute state changes (Requirement 7.4)
+  useEffect(() => {
+    const handleMuteStateChange = ({ isMuted }: { isMuted: boolean }) => {
+      setIsMuted(isMuted)
+    }
+
+    webrtcService.on('mute-state-change', handleMuteStateChange)
+
+    return () => {
+      webrtcService.off('mute-state-change', handleMuteStateChange)
+    }
+  }, [])
 
   const handleToggleMute = () => {
     const newMuted = webrtcService.toggleMute()

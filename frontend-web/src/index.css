@@ -74,3 +74,536 @@ html, body {
   /* Force break every 50 characters if no spaces */
   word-spacing: normal;
 }
+
+/* ============================================
+   Google Meet-Style Video Call Interface
+   Requirements: 3.1, 3.2, 3.3, 3.4
+   ============================================ */
+
+/* Video Grid Layouts */
+.video-grid-gallery {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.video-grid-spotlight {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.video-grid-spotlight-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.video-grid-spotlight-sidebar {
+  width: 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Responsive adjustments for spotlight sidebar */
+@media (max-width: 1024px) {
+  .video-grid-spotlight-sidebar {
+    width: 12rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .video-grid-spotlight {
+    flex-direction: column;
+  }
+  
+  .video-grid-spotlight-sidebar {
+    width: 100%;
+    flex-direction: row;
+    max-height: 8rem;
+  }
+}
+
+/* Video Tile Styles */
+.video-tile {
+  position: relative;
+  background-color: #1e293b;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  transition: all 0.2s ease-in-out;
+  aspect-ratio: 16 / 9;
+}
+
+.video-tile:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.video-tile-small {
+  width: 8rem;
+  height: 6rem;
+  min-width: 8rem;
+  min-height: 6rem;
+}
+
+.video-tile-medium {
+  width: 100%;
+  height: 100%;
+}
+
+.video-tile-large {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Video element */
+.video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background-color: #0f172a;
+}
+
+/* Avatar fallback */
+.video-tile-avatar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+}
+
+.video-tile-avatar-circle {
+  width: 6rem;
+  height: 6rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+}
+
+.video-tile-small .video-tile-avatar-circle {
+  width: 3rem;
+  height: 3rem;
+  font-size: 1.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.video-tile-large .video-tile-avatar-circle {
+  width: 8rem;
+  height: 8rem;
+  font-size: 3.5rem;
+  margin-bottom: 1rem;
+}
+
+/* Speaking Indicator - Animated Border */
+/* Requirement 3.2: Visual indicator for active speaker */
+.video-tile-speaking {
+  position: absolute;
+  inset: 0;
+  border: 4px solid #22c55e;
+  border-radius: 0.5rem;
+  pointer-events: none;
+  animation: speaking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% {
+    border-color: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    border-color: #16a34a;
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
+/* Active speaker highlight (stronger effect) */
+.video-tile-active-speaker {
+  position: absolute;
+  inset: 0;
+  border: 5px solid #22c55e;
+  border-radius: 0.5rem;
+  pointer-events: none;
+  animation: active-speaker-glow 2s ease-in-out infinite;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+}
+
+@keyframes active-speaker-glow {
+  0%, 100% {
+    border-color: #22c55e;
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.5), inset 0 0 20px rgba(34, 197, 94, 0.1);
+  }
+  50% {
+    border-color: #4ade80;
+    box-shadow: 0 0 30px rgba(34, 197, 94, 0.8), inset 0 0 30px rgba(34, 197, 94, 0.2);
+  }
+}
+
+/* Participant name overlay */
+.video-tile-name {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: background-color 0.2s ease;
+}
+
+.video-tile:hover .video-tile-name {
+  background-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Status indicators container */
+.video-tile-indicators {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  z-index: 10;
+}
+
+.video-tile-indicator {
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  padding: 0.5rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.video-tile-indicator:hover {
+  transform: scale(1.1);
+  background-color: rgba(0, 0, 0, 0.85);
+}
+
+.video-tile-indicator-muted {
+  background-color: rgba(239, 68, 68, 0.9);
+}
+
+.video-tile-indicator-screen-share {
+  background-color: rgba(59, 130, 246, 0.9);
+}
+
+/* Connection quality indicator */
+.video-tile-connection {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 10;
+}
+
+/* Hover overlay */
+.video-tile-hover-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.video-tile:hover .video-tile-hover-overlay {
+  opacity: 1;
+}
+
+/* View Mode Toggle Button */
+.view-mode-toggle {
+  position: relative;
+  padding: 1rem;
+  border-radius: 50%;
+  background-color: #334155;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.view-mode-toggle:hover:not(:disabled) {
+  background-color: #475569;
+  transform: scale(1.05);
+}
+
+.view-mode-toggle:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.view-mode-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.view-mode-toggle-active {
+  background-color: #0284c7;
+}
+
+.view-mode-toggle-active:hover:not(:disabled) {
+  background-color: #0369a1;
+}
+
+/* Control buttons styling */
+.control-button {
+  padding: 1rem;
+  border-radius: 50%;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.control-button:hover {
+  transform: scale(1.05);
+}
+
+.control-button:active {
+  transform: scale(0.95);
+}
+
+.control-button-muted {
+  background-color: #dc2626;
+}
+
+.control-button-muted:hover {
+  background-color: #b91c1c;
+}
+
+.control-button-video-off {
+  background-color: #dc2626;
+}
+
+.control-button-video-off:hover {
+  background-color: #b91c1c;
+}
+
+.control-button-screen-sharing {
+  background-color: #16a34a;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.3);
+  animation: screen-share-pulse 2s ease-in-out infinite;
+}
+
+@keyframes screen-share-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.1);
+  }
+}
+
+.control-button-screen-sharing:hover {
+  background-color: #15803d;
+}
+
+/* Pulsing indicator dot */
+.indicator-dot {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+/* Responsive Grid Adjustments */
+/* Requirement 3.4: Responsive design for different screen sizes */
+@media (max-width: 1536px) {
+  .video-grid-gallery {
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 1280px) {
+  .video-grid-gallery {
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+  
+  .video-tile-avatar-circle {
+    width: 5rem;
+    height: 5rem;
+    font-size: 2rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .video-tile-name {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.375rem;
+  }
+  
+  .video-tile-indicator {
+    padding: 0.375rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .video-grid-gallery {
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+  
+  .video-tile-avatar-circle {
+    width: 4rem;
+    height: 4rem;
+    font-size: 1.5rem;
+  }
+  
+  .video-tile-name {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.25rem;
+  }
+  
+  .video-tile-indicator {
+    padding: 0.25rem;
+  }
+  
+  .control-button {
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .video-grid-gallery {
+    gap: 0.25rem;
+    padding: 0.25rem;
+  }
+  
+  .video-tile:hover {
+    transform: none;
+  }
+  
+  .video-tile-avatar-circle {
+    width: 3rem;
+    height: 3rem;
+    font-size: 1.25rem;
+  }
+}
+
+/* Smooth transitions for layout changes */
+.video-grid-gallery,
+.video-grid-spotlight {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Accessibility improvements */
+.control-button:focus-visible,
+.view-mode-toggle:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+/* Loading state for video tiles */
+.video-tile-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0f172a;
+}
+
+.video-tile-loading::after {
+  content: '';
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid #334155;
+  border-top-color: #0284c7;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Tooltip styles for controls */
+.control-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-0.5rem);
+  background-color: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 50;
+}
+
+.control-button:hover .control-tooltip,
+.view-mode-toggle:hover .control-tooltip {
+  opacity: 1;
+}
+
+/* Screen share specific styling */
+.video-tile-screen-share video {
+  object-fit: contain;
+  background-color: #000;
+}
+
+/* Ensure proper stacking context */
+.video-tile {
+  z-index: 1;
+}
+
+.video-tile:hover {
+  z-index: 2;
+}

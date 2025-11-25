@@ -4,7 +4,7 @@
   "description": "Nexus - Web version",
   "private": true,
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview --host",
     "type-check": "tsc --noEmit",

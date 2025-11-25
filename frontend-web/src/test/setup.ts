@@ -41,3 +41,53 @@ Object.defineProperty(global.navigator, 'mediaDevices', {
   },
   writable: true,
 })
+
+// Mock VoiceActivityDetector
+vi.mock('../services/voiceActivityDetector', () => {
+  class MockVoiceActivityDetector {
+    attachToStream = vi.fn()
+    detach = vi.fn()
+    onVoiceActivity = vi.fn()
+    cleanup = vi.fn()
+  }
+  return {
+    VoiceActivityDetector: MockVoiceActivityDetector,
+  }
+})
+
+// Mock ConnectionMonitor
+vi.mock('../services/connectionMonitor', () => {
+  return {
+    connectionMonitor: {
+      startMonitoring: vi.fn(),
+      stopMonitoring: vi.fn(),
+      getQuality: vi.fn().mockReturnValue({ quality: 'good', rtt: 50, packetLoss: 0 }),
+      onQualityChange: vi.fn(),
+    },
+    ConnectionQuality: {},
+  }
+})
+
+// Mock TrackManager
+vi.mock('../services/trackManager', () => {
+  class MockTrackManager {
+    queueOperation = vi.fn((fn: any) => {
+      if (typeof fn === 'function') {
+        return fn()
+      }
+      return Promise.resolve(true)
+    })
+    getCurrentVideoTrack = vi.fn().mockReturnValue(null)
+    getCurrentTrackType = vi.fn().mockReturnValue('none')
+    cleanupTrack = vi.fn()
+    reset = vi.fn()
+  }
+  return {
+    TrackManager: MockTrackManager,
+    TrackType: {
+      CAMERA: 'camera',
+      SCREEN: 'screen',
+      NONE: 'none',
+    },
+  }
+})

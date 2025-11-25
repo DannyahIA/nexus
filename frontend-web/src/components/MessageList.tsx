@@ -249,9 +249,80 @@ export default function MessageList({
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
   const prevMessagesLengthRef = useRef(0)
   const lastScrollHeightRef = useRef(0)
+  const lastScrollTopRef = useRef(0)
   const isLoadingMoreRef = useRef(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const topSentinelRef = useRef<HTMLDivElement>(null)
+  const scrollAdjustmentPendingRef = useRef(false)
+  const lastLoadTimeRef = useRef(0)
+  const loadDebounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Height calculation cache
+  const heightCacheRef = useRef<Map<string, number>>(new Map())
+  const lastHeightCalculationRef = useRef<number>(0)
+  const HEIGHT_CACHE_TTL = 1000 // Cache for 1 second
+  
+  // RequestAnimationFrame handles for cleanup
+  const rafHandlesRef = useRef<Set<number>>(new Set())
+  
+  // Timers for cleanup
+  const timersRef = useRef<Set<NodeJS.Timeout>>(new Set())
+  
+  // Scroll event debouncing/throttling
+  const scrollThrottleTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastScrollEventTimeRef = useRef<number>(0)
+  const SCROLL_THROTTLE_MS = 150 // Throttle scroll events to once per 150ms
+
+  // Helper function to get cached height or calculate
+  const getCachedHeight = useCallback((element: HTMLElement, cacheKey: string): number => {
+    const now = Date.now()
+    const cached = heightCacheRef.current.get(cacheKey)
+    
+    // Return cached value if still valid
+    if (cached !== undefined && (now - lastHeightCalculationRef.current) < HEIGHT_CACHE_TTL) {
+      console.log('📏 Height calculation: Using cached value', {
+        cacheKey,
+        cachedHeight: cached,
+        cacheAge: now - lastHeightCalculationRef.current,
+        cacheTTL: HEIGHT_CACHE_TTL,
+      })
+      return cached
+    }
+    
+    // Calculate and cache new height
+    const height = element.scrollHeight
+    heightCacheRef.current.set(cacheKey, height)
+    lastHeightCalculationRef.current = now
+    
+    console.log('📏 Height calculation: Computed new value', {
+      cacheKey,
+      newHeight: height,
+      previousCached: cached,
+      heightChange: cached !== undefined ? height - cached : 'N/A',
+    })
+    
+    return height
+  }, [])
+  
+  // Helper to schedule RAF with cleanup tracking
+  const scheduleRAF = useCallback((callback: FrameRequestCallback): number => {
+    const handle = requestAnimationFrame((time) => {
+      rafHandlesRef.current.delete(handle)
+      callback(time)
+    })
+    rafHandlesRef.current.add(handle)
+    return handle
+  }, [])
+  
+  // Helper to schedule timer with cleanup tracking
+  const scheduleTimer = useCallback((callback: () => void, delay: number): NodeJS.Timeout => {
+    const timer = setTimeout(() => {
+      timersRef.current.delete(timer)
+      callback()
+    }, delay)
+    timersRef.current.add(timer)
+    return timer
+  }, [])
 
   // Intersection Observer para detectar quando chegar no topo
   useEffect(() => {
@@ -260,22 +331,87 @@ export default function MessageList({
     observerRef.current = new IntersectionObserver(
       (entries) => {
         const entry = entries[0]
-        if (entry.isIntersecting && !loading && hasMore && !isLoadingMoreRef.current) {
-          console.log('🔝 Intersection Observer: Carregar mais')
-          isLoadingMoreRef.current = true
+        
+        // Prevent duplicate loads with comprehensive checks
+        if (!entry.isIntersecting) return
+        if (loading) {
+          console.log('🚫 Load prevented: Already loading')
+          return
+        }
+        if (!hasMore) {
+          console.log('🚫 Load prevented: No more messages')
+          return
+        }
+        if (isLoadingMoreRef.current) {
+          console.log('🚫 Load prevented: isLoadingMore flag is true')
+          return
+        }
+        
+        // Debounce: prevent loads within 500ms of last load
+        const now = Date.now()
+        const timeSinceLastLoad = now - lastLoadTimeRef.current
+        const DEBOUNCE_MS = 500
+        
+        if (timeSinceLastLoad < DEBOUNCE_MS) {
+          console.log(`🚫 Load prevented: Debounced (${timeSinceLastLoad}ms since last load)`)
+          return
+        }
+        
+        // Clear any pending debounce timer
+        if (loadDebounceTimerRef.current) {
+          clearTimeout(loadDebounceTimerRef.current)
+          timersRef.current.delete(loadDebounceTimerRef.current)
+          loadDebounceTimerRef.current = null
+        }
+        
+        // All checks passed - trigger load with debounce
+        const timer = scheduleTimer(() => {
+          // Double-check flags haven't changed during debounce
+          if (isLoadingMoreRef.current || loading) {
+            console.log('🚫 Load prevented: State changed during debounce', {
+              isLoadingMoreRef: isLoadingMoreRef.current,
+              loading,
+              timestamp: Date.now(),
+            })
+            return
+          }
           
-          // Salvar altura atual do scroll
+          console.log('🔝 Intersection Observer: Triggering load more', {
+            timestamp: Date.now(),
+            timeSinceLastLoad: Date.now() - lastLoadTimeRef.current,
+          })
+          isLoadingMoreRef.current = true
+          lastLoadTimeRef.current = Date.now()
+          
+          // Save current scroll state before loading using cached height
           if (scrollRef.current) {
-            lastScrollHeightRef.current = scrollRef.current.scrollHeight
+            try {
+              lastScrollHeightRef.current = getCachedHeight(scrollRef.current, 'scrollContainer')
+              lastScrollTopRef.current = scrollRef.current.scrollTop
+              
+              const distanceFromBottom = lastScrollHeightRef.current - (lastScrollTopRef.current + scrollRef.current.clientHeight)
+              
+              console.log('📊 Scroll State Before Load:', {
+                scrollHeight: lastScrollHeightRef.current,
+                scrollTop: lastScrollTopRef.current,
+                clientHeight: scrollRef.current.clientHeight,
+                distanceFromBottom,
+                messagesCount: messages.length,
+                timestamp: Date.now(),
+              })
+            } catch (error) {
+              console.error('❌ Error saving scroll state before load:', error, {
+                scrollRefExists: !!scrollRef.current,
+                timestamp: Date.now(),
+              })
+            }
           }
           
           onLoadMore()
-          
-          // Reset após 1 segundo
-          setTimeout(() => {
-            isLoadingMoreRef.current = false
-          }, 1000)
-        }
+          loadDebounceTimerRef.current = null
+        }, 100)
+        
+        loadDebounceTimerRef.current = timer
       },
       {
         root: scrollRef.current,
@@ -290,8 +426,14 @@ export default function MessageList({
       if (observerRef.current) {
         observerRef.current.disconnect()
       }
+      // Clean up debounce timer on unmount
+      if (loadDebounceTimerRef.current) {
+        clearTimeout(loadDebounceTimerRef.current)
+        timersRef.current.delete(loadDebounceTimerRef.current)
+        loadDebounceTimerRef.current = null
+      }
     }
-  }, [loading, hasMore, onLoadMore])
+  }, [loading, hasMore, onLoadMore, getCachedHeight, scheduleTimer])
 
   // Auto-scroll para o final quando novas mensagens chegam
   useEffect(() => {
@@ -303,45 +445,349 @@ export default function MessageList({
     prevMessagesLengthRef.current = messages.length
 
     if (wasLoading && messages.length > 0) {
-      // Primeira carga: scrollar para o final
-      console.log('📍 Auto-scroll: Primeira carga')
-      setTimeout(() => {
+      // First load: scroll to bottom
+      console.log('📍 Auto-scroll: Initial load', {
+        messagesCount: messages.length,
+        timestamp: Date.now(),
+      })
+      scheduleRAF(() => {
         if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+          try {
+            const beforeScrollTop = scrollRef.current.scrollTop
+            const beforeScrollHeight = scrollRef.current.scrollHeight
+            
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+            
+            console.log('📊 Scroll State After Initial Load:', {
+              beforeScrollTop,
+              beforeScrollHeight,
+              afterScrollTop: scrollRef.current.scrollTop,
+              afterScrollHeight: scrollRef.current.scrollHeight,
+              clientHeight: scrollRef.current.clientHeight,
+              messagesCount: messages.length,
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error('❌ Error during initial scroll to bottom:', error, {
+              scrollRefExists: !!scrollRef.current,
+              messagesCount: messages.length,
+              timestamp: Date.now(),
+            })
+          }
         }
-      }, 100)
-    } else if (isNewMessage && shouldAutoScroll && !isLoadingMoreRef.current) {
-      // Nova mensagem e estamos perto do final
-      console.log('📍 Auto-scroll: Nova mensagem')
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      })
     } else if (isNewMessage && isLoadingMoreRef.current) {
-      // Carregamos mensagens antigas: manter posição
-      console.log('📍 Manter posição: Mensagens antigas carregadas')
-      setTimeout(() => {
-        if (scrollRef.current) {
-          const newScrollHeight = scrollRef.current.scrollHeight
-          const heightDifference = newScrollHeight - lastScrollHeightRef.current
-          scrollRef.current.scrollTop = heightDifference
-          lastScrollHeightRef.current = newScrollHeight
+      // Loaded old messages: maintain visual position
+      console.log('📍 Maintain position: Old messages loaded', {
+        newMessagesCount: messages.length,
+        previousMessagesCount: prevMessagesLengthRef.current,
+        messagesAdded: messages.length - prevMessagesLengthRef.current,
+        timestamp: Date.now(),
+      })
+      scrollAdjustmentPendingRef.current = true
+      
+      // Use requestAnimationFrame for proper timing
+      scheduleRAF(() => {
+        if (scrollRef.current && scrollAdjustmentPendingRef.current) {
+          try {
+            const newScrollHeight = getCachedHeight(scrollRef.current, 'scrollContainer')
+            const heightDifference = newScrollHeight - lastScrollHeightRef.current
+            
+            // Calculate new scroll position to maintain visual position
+            const newScrollTop = lastScrollTopRef.current + heightDifference
+            
+            console.log('📊 Scroll Position Calculation:', {
+              previousScrollHeight: lastScrollHeightRef.current,
+              newScrollHeight: newScrollHeight,
+              heightDifference: heightDifference,
+              previousScrollTop: lastScrollTopRef.current,
+              calculatedNewScrollTop: newScrollTop,
+              messagesCount: messages.length,
+              timestamp: Date.now(),
+            })
+            
+            // Apply the scroll adjustment
+            const beforeScrollTop = scrollRef.current.scrollTop
+            scrollRef.current.scrollTop = newScrollTop
+            const actualScrollTop = scrollRef.current.scrollTop
+            
+            // Update refs for next load
+            lastScrollHeightRef.current = newScrollHeight
+            lastScrollTopRef.current = actualScrollTop
+            
+            console.log('📊 Scroll State After Adjustment:', {
+              beforeScrollTop,
+              requestedScrollTop: newScrollTop,
+              actualScrollTop,
+              scrollTopDifference: actualScrollTop - beforeScrollTop,
+              scrollHeight: scrollRef.current.scrollHeight,
+              clientHeight: scrollRef.current.clientHeight,
+              distanceFromBottom: scrollRef.current.scrollHeight - (actualScrollTop + scrollRef.current.clientHeight),
+              adjustmentSuccessful: Math.abs(actualScrollTop - newScrollTop) < 1,
+              timestamp: Date.now(),
+            })
+            
+            scrollAdjustmentPendingRef.current = false
+            
+            // Reset loading flag after adjustment is complete
+            // Use requestAnimationFrame to ensure DOM has settled
+            scheduleRAF(() => {
+              isLoadingMoreRef.current = false
+              console.log('✅ Load more flag reset after scroll adjustment', {
+                timestamp: Date.now(),
+              })
+            })
+          } catch (error) {
+            console.error('❌ Error during scroll position adjustment:', error, {
+              scrollRefExists: !!scrollRef.current,
+              lastScrollHeight: lastScrollHeightRef.current,
+              lastScrollTop: lastScrollTopRef.current,
+              messagesCount: messages.length,
+              timestamp: Date.now(),
+            })
+            
+            // Reset flags even on error to prevent stuck state
+            scrollAdjustmentPendingRef.current = false
+            isLoadingMoreRef.current = false
+          }
         }
-      }, 50)
+      })
+    } else if (isNewMessage && shouldAutoScroll && !isLoadingMoreRef.current) {
+      // New message and we're near the bottom - auto scroll
+      console.log('📍 Auto-scroll: New message (at bottom)', {
+        messagesCount: messages.length,
+        shouldAutoScroll,
+        timestamp: Date.now(),
+      })
+      scheduleRAF(() => {
+        if (scrollRef.current) {
+          try {
+            const beforeScrollTop = scrollRef.current.scrollTop
+            const beforeScrollHeight = scrollRef.current.scrollHeight
+            
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+            
+            console.log('📊 Scroll State After New Message:', {
+              beforeScrollTop,
+              beforeScrollHeight,
+              afterScrollTop: scrollRef.current.scrollTop,
+              afterScrollHeight: scrollRef.current.scrollHeight,
+              clientHeight: scrollRef.current.clientHeight,
+              scrolledDistance: scrollRef.current.scrollTop - beforeScrollTop,
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error('❌ Error during auto-scroll for new message:', error, {
+              scrollRefExists: !!scrollRef.current,
+              messagesCount: messages.length,
+              timestamp: Date.now(),
+            })
+          }
+        }
+      })
+    } else if (isNewMessage && !shouldAutoScroll && !isLoadingMoreRef.current) {
+      // New message but user is viewing history - explicitly prevent scroll adjustment
+      const distanceFromBottom = scrollRef.current.scrollHeight - (scrollRef.current.scrollTop + scrollRef.current.clientHeight)
+      console.log('📍 No scroll: User viewing history', {
+        distanceFromBottom,
+        shouldAutoScroll,
+        scrollTop: scrollRef.current.scrollTop,
+        scrollHeight: scrollRef.current.scrollHeight,
+        clientHeight: scrollRef.current.clientHeight,
+        messagesCount: messages.length,
+        timestamp: Date.now(),
+      })
+      // Do nothing - preserve current scroll position
     }
-  }, [messages, shouldAutoScroll])
+  }, [messages, shouldAutoScroll, scheduleRAF, getCachedHeight])
+  
+  // Reset loading flag when loading prop changes from true to false
+  // This ensures flag is reset even if messages don't change
+  useEffect(() => {
+    if (!loading && isLoadingMoreRef.current) {
+      console.log('⏳ Loading completed, scheduling flag reset', {
+        loading,
+        isLoadingMoreRef: isLoadingMoreRef.current,
+        timestamp: Date.now(),
+      })
+      
+      // Give a small delay to ensure scroll adjustment has completed
+      const timer = scheduleTimer(() => {
+        if (isLoadingMoreRef.current) {
+          console.log('✅ Load more flag reset (loading completed)', {
+            timestamp: Date.now(),
+          })
+          isLoadingMoreRef.current = false
+        }
+      }, 200)
+      
+      return () => {
+        clearTimeout(timer)
+        timersRef.current.delete(timer)
+      }
+    }
+  }, [loading, scheduleTimer])
 
-  // Detectar quando o usuário está perto do final
+  // Emit scroll state change events
+  const emitScrollStateChange = useCallback((state: {
+    scrollTop: number
+    scrollHeight: number
+    clientHeight: number
+    distanceFromBottom: number
+    isNearBottom: boolean
+    isAtBottom: boolean
+  }) => {
+    // Emit custom event that can be monitored
+    const event = new CustomEvent('messageListScrollStateChange', {
+      detail: state,
+      bubbles: true,
+    })
+    scrollRef.current?.dispatchEvent(event)
+    
+    console.log('📡 Scroll state change event emitted:', state)
+  }, [])
+
+  // Detect when user is near the bottom with throttling
+  const handleScrollImmediate = useCallback(() => {
+    if (!scrollRef.current) {
+      console.warn('⚠️ handleScrollImmediate called but scrollRef is null', {
+        timestamp: Date.now(),
+      })
+      return
+    }
+
+    try {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+      
+      // Calculate distance from bottom
+      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight)
+      
+      // Auto-scroll threshold: 150px from bottom
+      const AUTO_SCROLL_THRESHOLD = 150
+      
+      // User is considered "at bottom" if within threshold
+      const isNearBottom = distanceFromBottom < AUTO_SCROLL_THRESHOLD
+      const isAtBottom = distanceFromBottom < 1
+      
+      // Prepare scroll state
+      const scrollState = {
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+        distanceFromBottom,
+        isNearBottom,
+        isAtBottom,
+      }
+      
+      // Only update state if it changed to avoid unnecessary re-renders
+      if (isNearBottom !== shouldAutoScroll) {
+        console.log('📊 Auto-scroll state changed:', {
+          previousShouldAutoScroll: shouldAutoScroll,
+          newShouldAutoScroll: isNearBottom,
+          distanceFromBottom,
+          threshold: AUTO_SCROLL_THRESHOLD,
+          scrollTop,
+          scrollHeight,
+          clientHeight,
+          isAtBottom,
+          messagesCount: messages.length,
+          timestamp: Date.now(),
+        })
+        setShouldAutoScroll(isNearBottom)
+        
+        // Emit state change event
+        emitScrollStateChange(scrollState)
+      }
+    } catch (error) {
+      console.error('❌ Error in handleScrollImmediate:', error, {
+        scrollRefExists: !!scrollRef.current,
+        shouldAutoScroll,
+        messagesCount: messages.length,
+        timestamp: Date.now(),
+      })
+    }
+  }, [shouldAutoScroll, emitScrollStateChange, messages.length])
+  
+  // Debounced/throttled scroll handler
   const handleScroll = useCallback(() => {
-    if (!scrollRef.current) return
-
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
-    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight)
-    
-    // Auto-scroll habilitado se estiver próximo do final (150px)
-    const newShouldAutoScroll = distanceFromBottom < 150
-    
-    if (newShouldAutoScroll !== shouldAutoScroll) {
-      setShouldAutoScroll(newShouldAutoScroll)
+    try {
+      const now = Date.now()
+      const timeSinceLastScroll = now - lastScrollEventTimeRef.current
+      
+      // Throttle: if we've processed a scroll event recently, schedule for later
+      if (timeSinceLastScroll < SCROLL_THROTTLE_MS) {
+        console.log(`⏱️ Scroll event throttled`, {
+          timeSinceLastScroll,
+          threshold: SCROLL_THROTTLE_MS,
+          willExecuteIn: SCROLL_THROTTLE_MS - timeSinceLastScroll,
+          timestamp: now,
+        })
+        
+        // Clear any pending throttle timer
+        if (scrollThrottleTimerRef.current) {
+          clearTimeout(scrollThrottleTimerRef.current)
+          timersRef.current.delete(scrollThrottleTimerRef.current)
+        }
+        
+        // Schedule the scroll handler to run after throttle period
+        const timer = setTimeout(() => {
+          console.log('⏱️ Throttled scroll event executing', {
+            timestamp: Date.now(),
+          })
+          lastScrollEventTimeRef.current = Date.now()
+          handleScrollImmediate()
+          scrollThrottleTimerRef.current = null
+        }, SCROLL_THROTTLE_MS - timeSinceLastScroll)
+        
+        scrollThrottleTimerRef.current = timer
+        timersRef.current.add(timer)
+        
+        return
+      }
+      
+      // Process immediately if enough time has passed
+      console.log(`✅ Scroll event processing immediately`, {
+        timeSinceLastScroll,
+        threshold: SCROLL_THROTTLE_MS,
+        timestamp: now,
+      })
+      lastScrollEventTimeRef.current = now
+      handleScrollImmediate()
+    } catch (error) {
+      console.error('❌ Error in handleScroll:', error, {
+        scrollRefExists: !!scrollRef.current,
+        timestamp: Date.now(),
+      })
     }
-  }, [shouldAutoScroll])
+  }, [handleScrollImmediate])
+  
+  // Cleanup effect: cancel all pending RAF and timers on unmount
+  useEffect(() => {
+    return () => {
+      // Cancel all pending requestAnimationFrame calls
+      rafHandlesRef.current.forEach(handle => {
+        cancelAnimationFrame(handle)
+      })
+      rafHandlesRef.current.clear()
+      
+      // Clear all pending timers
+      timersRef.current.forEach(timer => {
+        clearTimeout(timer)
+      })
+      timersRef.current.clear()
+      
+      // Clear scroll throttle timer
+      if (scrollThrottleTimerRef.current) {
+        clearTimeout(scrollThrottleTimerRef.current)
+        scrollThrottleTimerRef.current = null
+      }
+      
+      // Clear height cache
+      heightCacheRef.current.clear()
+      
+      console.log('🧹 MessageList cleanup: All observers and timers cleared')
+    }
+  }, [])
 
   // Renderizar apenas primeiras 100 mensagens se tiver muitas (otimização inicial)
   const visibleMessages = messages.length > 100 ? messages.slice(-100) : messages
@@ -355,7 +801,9 @@ export default function MessageList({
         overflowAnchor: 'none',
         maxWidth: '100%',
         width: '100%',
-        contain: 'layout'
+        contain: 'layout style paint',
+        willChange: 'scroll-position',
+        contentVisibility: 'auto' as any
       }}
     >
       {/* Sentinel para Intersection Observer (invisível) */}

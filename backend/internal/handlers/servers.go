@@ -97,9 +97,10 @@ func (sh *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := uuid.Must(uuid.NewV4()).String()
+	inviteCode := uuid.Must(uuid.NewV4()).String()[:8] // Generate 8-char invite code
 
 	// Criar servidor
-	err := sh.db.CreateServer(serverID, req.Name, req.Description, claims.UserID, req.Icon)
+	err := sh.db.CreateServer(serverID, req.Name, req.Description, claims.UserID, req.Icon, inviteCode)
 	if err != nil {
 		sh.logger.Error("failed to create server", zap.Error(err))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -259,4 +260,32 @@ func (sh *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 	sh.logger.Info("server deleted", zap.String("id", serverID), zap.String("userId", claims.UserID))
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// JoinServerByInvite permite que um usuário entre em um servidor usando um código de convite
+func (sh *ServerHandler) JoinServerByInvite(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*models.Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Extrair invite code da URL: /api/servers/join/{code}
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+
+	if len(parts) < 5 || parts[4] == "" {
+		http.Error(w, "invite code required", http.StatusBadRequest)
+		return
+	}
+
+	inviteCode := parts[4]
+
+	// TODO: Implement GetServerByInviteCode in database
+	// For now, return not implemented
+	sh.logger.Info("join server by invite", 
+		zap.String("inviteCode", inviteCode),
+		zap.String("userId", claims.UserID))
+
+	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
