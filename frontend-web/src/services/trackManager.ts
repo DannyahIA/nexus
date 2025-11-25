@@ -63,10 +63,9 @@ export class TrackManager {
       this.operationQueue.push(trackOperation)
       console.log(`📋 Queued operation ${operationId} (${operationType}), queue length: ${this.operationQueue.length}`)
 
-      // Start processing if not already processing
-      if (!this.isProcessing) {
-        this.processQueue()
-      }
+      // Always try to start processing (processQueue will check if already processing)
+      // Use setTimeout to ensure this runs asynchronously
+      setTimeout(() => this.processQueue(), 0)
     })
   }
 
@@ -75,11 +74,18 @@ export class TrackManager {
    * Implements Requirement 7.5: Proper error handling for async operations
    */
   private async processQueue(): Promise<void> {
-    if (this.isProcessing || this.operationQueue.length === 0) {
+    if (this.isProcessing) {
+      console.log('📋 Already processing queue, skipping')
+      return
+    }
+    
+    if (this.operationQueue.length === 0) {
+      console.log('📋 Queue is empty, nothing to process')
       return
     }
 
     this.isProcessing = true
+    console.log(`📋 Starting queue processing, ${this.operationQueue.length} operation(s) in queue`)
 
     while (this.operationQueue.length > 0) {
       const operation = this.operationQueue.shift()!
@@ -87,7 +93,16 @@ export class TrackManager {
       console.log(`⚙️ Processing operation ${operation.id} (${operation.type})`)
 
       try {
-        const result = await operation.execute()
+        // Add timeout to prevent hanging operations
+        const timeoutPromise = new Promise<boolean>((_, reject) => {
+          setTimeout(() => reject(new Error('Operation timeout after 30 seconds')), 30000)
+        })
+        
+        const result = await Promise.race([
+          operation.execute(),
+          timeoutPromise
+        ])
+        
         operation.resolve(result)
         console.log(`✅ Operation ${operation.id} completed successfully`)
       } catch (error) {
@@ -103,7 +118,7 @@ export class TrackManager {
     }
 
     this.isProcessing = false
-    console.log('📋 Operation queue empty')
+    console.log('📋 Operation queue empty, processing complete')
   }
 
   /**

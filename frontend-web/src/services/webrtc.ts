@@ -1207,6 +1207,12 @@ class WebRTCService {
           timestamp: new Date().toISOString(),
         })
         
+        // Check if we're still in a voice channel
+        if (!this.currentChannelId) {
+          console.warn('⚠️ Not in a voice channel, canceling video toggle')
+          return false
+        }
+        
         if (!this.localStream) {
           console.error('❌ No local stream available')
           return false
@@ -1320,9 +1326,9 @@ class WebRTCService {
         }
 
         // No video track exists, add new camera track
-        // Note: addVideoTrack already has audio preservation checks
+        // Note: Use internal method to avoid nested queueOperation
         console.log('📊 No existing video track, adding new camera track')
-        return await this.addVideoTrack()
+        return await this.addVideoTrackInternal()
       } catch (error) {
         // Enhanced error logging with full context (Requirement 4.5)
         console.error('❌ Failed to toggle video:', {
@@ -1355,10 +1361,9 @@ class WebRTCService {
     })
   }
 
-  // Adicionar track de vídeo dinamicamente
+  // Adicionar track de vídeo dinamicamente (internal version without queueing)
   // Implements Requirements 1.1, 1.2, 1.3, 2.1, 2.2, 2.5, 5.2, 5.4, 6.3
-  async addVideoTrack(): Promise<boolean> {
-    return this.trackManager.queueOperation('add-video', async () => {
+  private async addVideoTrackInternal(): Promise<boolean> {
       try {
         console.log('📹 Adding video track...')
 
@@ -1584,6 +1589,15 @@ class WebRTCService {
         
         return false
       }
+  }
+
+  /**
+   * Public method to add video track (uses queue)
+   * This is the public API that should be called from outside
+   */
+  async addVideoTrack(): Promise<boolean> {
+    return this.trackManager.queueOperation('add-video', async () => {
+      return await this.addVideoTrackInternal()
     })
   }
 
@@ -2508,6 +2522,13 @@ class WebRTCService {
     return this.trackManager.queueOperation('start-screen-share', async () => {
       try {
         console.log('🖥️ Starting screen share...')
+
+        // Check if we're still in a voice channel
+        if (!this.currentChannelId) {
+          console.warn('⚠️ Not in a voice channel, canceling screen share')
+          this.emit('video-error', { error: 'Not in an active call' })
+          return false
+        }
 
         if (!this.localStream) {
           console.error('❌ No local stream available')
