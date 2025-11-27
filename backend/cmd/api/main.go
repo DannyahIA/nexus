@@ -180,8 +180,11 @@ func main() {
 		if strings.HasPrefix(path, "/api/servers/join/") && r.Method == http.MethodPost {
 			serverHandler.JoinServerByInvite(w, r)
 		} else if strings.HasSuffix(path, "/channels") && r.Method == http.MethodGet {
-			// /api/servers/{id}/channels
+			// /api/servers/{id}/channels - GET
 			serverHandler.GetServerChannels(w, r)
+		} else if strings.HasSuffix(path, "/channels") && r.Method == http.MethodPost {
+			// /api/servers/{id}/channels - POST
+			serverHandler.CreateServerChannel(w, r)
 		} else if r.Method == http.MethodPut || r.Method == http.MethodPatch {
 			// Atualização de servidor /api/servers/{id}
 			serverHandler.UpdateServer(w, r)

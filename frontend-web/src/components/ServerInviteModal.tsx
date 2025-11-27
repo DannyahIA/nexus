@@ -88,11 +88,16 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                     type="text"
                     value={inviteLink}
                     readOnly
-                    className="flex-1 px-3 py-2 bg-dark-900 border border-dark-700 rounded text-white text-sm"
+                    onClick={(e) => e.currentTarget.select()}
+                    className="flex-1 px-3 py-2.5 bg-dark-900 border border-dark-700 rounded-lg text-white text-sm font-mono cursor-pointer hover:bg-dark-850 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-600"
                   />
                   <button
                     onClick={handleCopy}
-                    className="px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded font-medium transition-colors flex items-center gap-2"
+                    className={`px-4 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 ${
+                      copied
+                        ? 'bg-green-600 hover:bg-green-700'
+                        : 'bg-primary-600 hover:bg-primary-700'
+                    }`}
                   >
                     {copied ? (
                       <>
@@ -109,13 +114,20 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                 </div>
               </div>
 
-              <div className="bg-dark-900 p-4 rounded-lg">
-                <p className="text-sm text-dark-400">
-                  <strong className="text-white">Código:</strong> {server.inviteCode}
-                </p>
-                <p className="text-xs text-dark-500 mt-2">
-                  Este link nunca expira e pode ser usado por qualquer pessoa.
-                </p>
+              <div className="bg-dark-900 border border-dark-700 p-4 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-primary-600/20 rounded-lg flex items-center justify-center">
+                    <span className="text-primary-400 text-sm font-bold">#</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white mb-1">
+                      Código: <span className="font-mono text-primary-400">{server.inviteCode}</span>
+                    </p>
+                    <p className="text-xs text-dark-400">
+                      Este link nunca expira e pode ser usado por qualquer pessoa.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </>

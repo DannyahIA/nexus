@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Volume2, Settings, Grid, User } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Volume2, Settings, Grid, User, Activity } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
 import { useAuthStore } from '../store/authStore'
 import { useVoiceStore } from '../store/voiceStore'
 import VideoGrid from './VideoGrid'
+import HealthCheckPanel from './HealthCheckPanel'
 import { ViewMode } from '../store/voiceStore'
 
 interface VoiceChannelProps {
@@ -22,6 +23,7 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
   const [isLocalSpeaking, setIsLocalSpeaking] = useState(false)
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [showHealthCheck, setShowHealthCheck] = useState(false)
   
   // Track previous view mode before screen share (Requirement 4.5)
   const previousViewModeRef = useRef<ViewMode>('gallery')
@@ -427,6 +429,16 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
           )}
         </button>
 
+        {/* Health Check */}
+        <button
+          onClick={() => setShowHealthCheck(true)}
+          className="control-button bg-dark-700 hover:bg-dark-600"
+          title="Connection health check"
+          aria-label="Connection health check"
+        >
+          <Activity className="w-5 h-5" />
+        </button>
+
         {/* Settings */}
         <button
           className="control-button bg-dark-700 hover:bg-dark-600"
@@ -446,6 +458,11 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
           <PhoneOff className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Health Check Panel (Requirement 9.3) */}
+      {showHealthCheck && (
+        <HealthCheckPanel onClose={() => setShowHealthCheck(false)} />
+      )}
     </div>
   )
 }

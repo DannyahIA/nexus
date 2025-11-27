@@ -151,12 +151,61 @@ export class WebSocketService {
         }
         break
 
+      case 'voice:join':
+        // Usuário entrou em canal de voz
+        if (wsMsg.data && wsMsg.channelId) {
+          const userData = JSON.parse(wsMsg.data)
+          this.emit('voice:user-joined', {
+            channelId: wsMsg.channelId,
+            user: {
+              id: wsMsg.userId,
+              username: userData.username,
+              displayName: userData.displayName,
+              avatar: userData.avatar,
+            },
+          })
+        }
+        break
+
+      case 'voice:leave':
+        // Usuário saiu de canal de voz
+        if (wsMsg.channelId && wsMsg.userId) {
+          this.emit('voice:user-left', {
+            channelId: wsMsg.channelId,
+            userId: wsMsg.userId,
+          })
+        }
+        break
+
+      case 'voice:status':
+        // Status de áudio atualizado
+        if (wsMsg.data && wsMsg.channelId && wsMsg.userId) {
+          const statusData = JSON.parse(wsMsg.data)
+          this.emit('voice:status-updated', {
+            channelId: wsMsg.channelId,
+            userId: wsMsg.userId,
+            isMuted: statusData.isMuted,
+            isDeafened: statusData.isDeafened,
+          })
+        }
+        break
+
+      case 'voice:speaking':
+        // Usuário começou/parou de falar
+        if (wsMsg.channelId && wsMsg.userId && wsMsg.data) {
+          const speakingData = JSON.parse(wsMsg.data)
+          this.emit('voice:speaking', {
+            channelId: wsMsg.channelId,
+            userId: wsMsg.userId,
+            isSpeaking: speakingData.isSpeaking,
+          })
+        }
+        break
+
       // WebRTC Signaling
       case 'voice:offer':
       case 'voice:answer':
       case 'voice:ice-candidate':
-      case 'voice:user-joined':
-      case 'voice:user-left':
       case 'voice:mute-status':
       case 'voice:video-status':
         // Eventos WebRTC são tratados pelos listeners
@@ -164,6 +213,7 @@ export class WebSocketService {
 
       default:
         console.log('Unknown message type:', wsMsg.type)
+        break
     }
   }
 
@@ -323,6 +373,51 @@ export class WebSocketService {
     } else {
       console.warn(`⚠️ No listeners registered for event: ${event}`)
     }
+  }
+
+  // Notificar entrada em canal de voz
+  notifyVoiceJoin(channelId: string) {
+    const user = useAuthStore.getState().user
+    if (!user) return
+
+    this.send({
+      type: 'voice:join',
+      channelId,
+      userId: user.id,
+      data: JSON.stringify({
+        username: user.username,
+        displayName: user.displayName || user.username,
+        avatar: user.avatar,
+      }),
+    })
+  }
+
+  // Notificar saída de canal de voz
+  notifyVoiceLeave(channelId: string) {
+    const user = useAuthStore.getState().user
+    if (!user) return
+
+    this.send({
+      type: 'voice:leave',
+      channelId,
+      userId: user.id,
+    })
+  }
+
+  // Atualizar status de áudio (mute/deafen)
+  updateVoiceStatus(channelId: string, isMuted: boolean, isDeafened: boolean) {
+    const user = useAuthStore.getState().user
+    if (!user) return
+
+    this.send({
+      type: 'voice:status',
+      channelId,
+      userId: user.id,
+      data: JSON.stringify({
+        isMuted,
+        isDeafened,
+      }),
+    })
   }
 
   disconnect() {

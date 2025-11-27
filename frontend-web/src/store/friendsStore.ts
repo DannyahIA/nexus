@@ -3,8 +3,11 @@ import { create } from 'zustand'
 export interface Friend {
   userId: string
   username: string
+  discriminator: string
+  displayName: string
   email: string
   avatarUrl?: string
+  bio?: string
   status: 'online' | 'offline' | 'idle' | 'dnd'
   addedAt: number
   dmChannelId?: string

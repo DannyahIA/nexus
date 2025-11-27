@@ -42,9 +42,13 @@ func (db *CassandraDB) Close() error {
 
 // InitializeKeyspace inicializa o keyspace e tabelas
 func (db *CassandraDB) InitializeKeyspace() error {
+	// Criar keyspace primeiro (sem usar USE)
+	createKeyspaceQuery := `CREATE KEYSPACE IF NOT EXISTS nexus WITH replication = {'class':'SimpleStrategy','replication_factor':1}`
+	if err := db.session.Query(createKeyspaceQuery).Exec(); err != nil {
+		log.Printf("Warning: Failed to create keyspace: %v", err)
+	}
+	
 	queries := []string{
-		`CREATE KEYSPACE IF NOT EXISTS nexus WITH replication = {'class':'SimpleStrategy','replication_factor':1}`,
-		`USE nexus`,
 		`CREATE TABLE IF NOT EXISTS messages_by_channel (
 			channel_id uuid,
 			bucket int,
@@ -71,17 +75,20 @@ func (db *CassandraDB) InitializeKeyspace() error {
 			status text,
 			last_seen timestamp
 		)`,
-		`CREATE TABLE IF NOT EXISTS users (
+		`CREATE TABLE IF NOT EXISTS nexus.users (
 			user_id uuid PRIMARY KEY,
 			email text,
 			username text,
+			discriminator text,
+			display_name text,
 			password_hash text,
 			avatar_url text,
+			bio text,
 			created_at timestamp,
 			updated_at timestamp
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_user_email ON users(email)`,
-		`CREATE INDEX IF NOT EXISTS idx_user_username ON users(username)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_email ON nexus.users(email)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_username ON nexus.users(username)`,
 		`CREATE TABLE IF NOT EXISTS channels (
 			channel_id uuid PRIMARY KEY,
 			name text,
@@ -104,6 +111,12 @@ func (db *CassandraDB) InitializeKeyspace() error {
 		if err := db.session.Query(query).Exec(); err != nil {
 			log.Printf("Warning: Query failed: %s\nError: %v", query, err)
 		}
+	}
+	
+	// Tentar criar índice de discriminator (pode falhar se a coluna não existir ainda)
+	discriminatorIndexQuery := `CREATE INDEX IF NOT EXISTS idx_user_discriminator ON nexus.users(discriminator)`
+	if err := db.session.Query(discriminatorIndexQuery).Exec(); err != nil {
+		log.Printf("Info: Discriminator index not created (column may not exist yet): %v", err)
 	}
 
 	return nil
@@ -213,6 +226,17 @@ func (db *CassandraDB) GetUserByUsername(username string) (map[string]interface{
 	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE username = ? ALLOW FILTERING`
 	row := make(map[string]interface{})
 	err := db.session.Query(query, username).MapScan(row)
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// GetUserByUsernameAndDiscriminator retorna um usuário específico pelo username e discriminador
+func (db *CassandraDB) GetUserByUsernameAndDiscriminator(username, discriminator string) (map[string]interface{}, error) {
+	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE username = ? AND discriminator = ? ALLOW FILTERING`
+	row := make(map[string]interface{})
+	err := db.session.Query(query, username, discriminator).MapScan(row)
 	if err != nil {
 		return nil, err
 	}

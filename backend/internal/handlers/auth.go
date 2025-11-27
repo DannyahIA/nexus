@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt"
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/models"
@@ -73,11 +74,17 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: Buscar usuário real do banco de dados
+	// Por enquanto, gerar UUID válido
+	userID := uuid.Must(uuid.NewV4()).String()
+	
 	// Gerar token JWT
 	claims := &models.Claims{
-		UserID:   "user-123",
-		Email:    req.Email,
-		Username: "user",
+		UserID:        userID,
+		Email:         req.Email,
+		Username:      "user",
+		Discriminator: "0000",
+		DisplayName:   "user",
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
 			IssuedAt:  time.Now().Unix(),
@@ -133,11 +140,19 @@ func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// TODO: Salvar usuário no banco de dados
 	ah.logger.Info("user registered", zap.String("email", req.Email), zap.String("username", req.Username))
 
+	// Gerar UUID válido para o novo usuário
+	userID := uuid.Must(uuid.NewV4())
+	
+	// TODO: Salvar usuário no banco de dados com discriminador
+	// discriminator, err := ah.db.CreateUserWithDiscriminator(userID.String(), req.Email, req.Username, req.Username, string(hashedPassword))
+	
 	// Gerar token JWT
 	claims := &models.Claims{
-		UserID:   "user-new-123",
-		Email:    req.Email,
-		Username: req.Username,
+		UserID:        userID.String(),
+		Email:         req.Email,
+		Username:      req.Username,
+		Discriminator: "0000", // TODO: Usar discriminador gerado
+		DisplayName:   req.Username,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
 			IssuedAt:  time.Now().Unix(),

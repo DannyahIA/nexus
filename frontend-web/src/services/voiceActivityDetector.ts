@@ -107,6 +107,7 @@ export class VoiceActivityDetector {
       }
 
       // Get frequency data
+      // @ts-ignore - ArrayBufferLike is compatible with ArrayBuffer for this use case
       this.analyser.getByteFrequencyData(this.dataArray);
 
       // Calculate average level

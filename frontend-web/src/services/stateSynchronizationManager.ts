@@ -1,8 +1,7 @@
 // State Synchronization Manager for WebRTC
 // Implements Requirements 1.5
 
-import { StateInconsistency, MediaState } from '../types/webrtc'
-import { TrackType } from './trackManager'
+import { StateInconsistency } from '../types/webrtc'
 
 /**
  * State Synchronization Manager

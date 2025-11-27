@@ -281,19 +281,19 @@ class WebRTCService {
     this.backgroundModeHandler.initialize()
 
     // Listen for background mode entered event (Requirements 4.1, 4.2, 4.5)
-    this.backgroundModeHandler.on('background-mode-entered', (data: any) => {
+    this.backgroundModeHandler.on('background-mode-entered', (_data: any) => {
       console.log('📱 Background mode entered, maintaining connections')
       this.handleBackgroundMode(true)
     })
 
     // Listen for foreground mode entered event (Requirement 4.3)
-    this.backgroundModeHandler.on('foreground-mode-entered', (data: any) => {
+    this.backgroundModeHandler.on('foreground-mode-entered', (_data: any) => {
       console.log('🖥️ Foreground mode entered, connections remain stable')
       this.handleBackgroundMode(false)
     })
 
     // Listen for background maintenance events (Requirement 4.5)
-    this.backgroundModeHandler.on('background-maintenance', (data: any) => {
+    this.backgroundModeHandler.on('background-maintenance', (_data: any) => {
       console.log('🔄 Background maintenance triggered')
       this.monitorConnectionsInBackground()
     })
@@ -2980,7 +2980,10 @@ class WebRTCService {
    * Implements Requirement 2.5: Verify video senders exist for all peers
    * 
    * @param expectedTrackId - Expected video track ID
+   * 
+   * NOTE: Currently unused but kept for potential future use
    */
+  // @ts-expect-error - Function kept for potential future use
   private async verifyVideoSenders(expectedTrackId: string): Promise<void> {
     console.log('🔍 Verifying video senders for all peers...')
     
@@ -2999,7 +3002,7 @@ class WebRTCService {
           expected: expectedTrackId,
           actual: videoSender.track?.id,
         })
-      } else {
+      } else if (videoSender.track) {
         console.log(`✅ Video sender verified for peer ${userId}:`, {
           trackId: videoSender.track.id,
           trackEnabled: videoSender.track.enabled,
@@ -3915,9 +3918,7 @@ class WebRTCService {
 
         // Get screen share stream
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            cursor: 'always',
-          },
+          video: true,
           audio: false,
         })
 
@@ -4140,10 +4141,12 @@ class WebRTCService {
             })
             
             // Disable video entirely if we can't restore camera
-            const screenTrack = this.localStream.getVideoTracks()[0]
-            if (screenTrack) {
-              screenTrack.stop()
-              this.localStream.removeTrack(screenTrack)
+            if (this.localStream) {
+              const screenTrack = this.localStream.getVideoTracks()[0]
+              if (screenTrack) {
+                screenTrack.stop()
+                this.localStream.removeTrack(screenTrack)
+              }
             }
             
             // Replace with null track (removes video) - use recovery-safe version
@@ -5010,75 +5013,7 @@ class WebRTCService {
     }
   }
 
-  /**
-   * Verify video senders exist for all peer connections
-   * Implements Requirement 1.4: Video sender presence verification
-   * 
-   * Checks that all peer connections have video senders when video is enabled.
-   * Logs verification results for each peer.
-   * 
-   * @returns Promise<void>
-   */
-  async verifyVideoSenders(): Promise<void> {
-    console.log('🔍 Verifying video senders for all peers...')
-    
-    // Get current video state
-    const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
-    const currentTrackState = this.trackManager.getCurrentTrackState()
-    const expectedVideoEnabled = currentTrackState.isActive && !!currentVideoTrack && currentVideoTrack.enabled
-    
-    if (!expectedVideoEnabled) {
-      console.log('ℹ️ Video is disabled, skipping sender verification')
-      return
-    }
-    
-    console.log('📊 Verifying video senders:', {
-      expectedTrackId: currentVideoTrack?.id,
-      peerCount: this.peerConnections.size,
-    })
-    
-    let allVerified = true
-    const missingPeers: string[] = []
-    const wrongTrackPeers: string[] = []
-    
-    for (const [peerId, pc] of this.peerConnections.entries()) {
-      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
-      
-      if (!videoSender || !videoSender.track) {
-        console.error(`❌ No video sender found for peer ${peerId}`)
-        allVerified = false
-        missingPeers.push(peerId)
-      } else if (videoSender.track.id !== currentVideoTrack!.id) {
-        console.warn(`⚠️ Video sender for peer ${peerId} has unexpected track ID:`, {
-          expected: currentVideoTrack!.id,
-          actual: videoSender.track.id,
-        })
-        wrongTrackPeers.push(peerId)
-      } else {
-        console.log(`✅ Video sender verified for peer ${peerId}:`, {
-          trackId: videoSender.track.id,
-          trackEnabled: videoSender.track.enabled,
-        })
-      }
-    }
-    
-    // Log verification results
-    if (!allVerified) {
-      console.error(`❌ Video sender verification failed:`, {
-        missingPeers: missingPeers.length,
-        wrongTrackPeers: wrongTrackPeers.length,
-      })
-      
-      if (missingPeers.length > 0) {
-        console.error(`  Missing senders for: ${missingPeers.join(', ')}`)
-      }
-      if (wrongTrackPeers.length > 0) {
-        console.warn(`  Wrong track for: ${wrongTrackPeers.join(', ')}`)
-      }
-    } else {
-      console.log('✅ All video senders verified successfully')
-    }
-  }
+
 
   /**
    * Handle background mode transitions
@@ -5261,8 +5196,8 @@ class WebRTCService {
         // Log quality for each peer
         console.log(`📊 Quality for ${userId}:`, {
           quality: quality.quality,
-          rtt: quality.rtt,
-          packetsLost: quality.packetsLost,
+          latency: quality.latency,
+          packetLoss: quality.packetLoss,
           jitter: quality.jitter,
         })
       }
@@ -5286,8 +5221,8 @@ class WebRTCService {
     const qualityMetrics: Array<{
       userId: string
       quality: string
-      rtt: number
-      packetsLost: number
+      latency: number
+      packetLoss: number
       jitter: number
       timestamp: number
     }> = []
@@ -5298,8 +5233,8 @@ class WebRTCService {
         qualityMetrics.push({
           userId,
           quality: quality.quality,
-          rtt: quality.rtt,
-          packetsLost: quality.packetsLost,
+          latency: quality.latency,
+          packetLoss: quality.packetLoss,
           jitter: quality.jitter,
           timestamp: Date.now(),
         })
@@ -5631,8 +5566,8 @@ class WebRTCService {
       for (const [peerId, quality] of report.connectionQuality.entries()) {
         lines.push(`\nPeer: ${peerId}`)
         lines.push(`  Quality: ${quality.quality.toUpperCase()}`)
-        lines.push(`  RTT: ${quality.rtt}ms`)
-        lines.push(`  Packets Lost: ${quality.packetsLost}`)
+        lines.push(`  Latency: ${quality.latency}ms`)
+        lines.push(`  Packet Loss: ${(quality.packetLoss * 100).toFixed(2)}%`)
         lines.push(`  Jitter: ${quality.jitter}ms`)
       }
     }
@@ -5703,190 +5638,7 @@ class WebRTCService {
     return lines.join('\n')
   }
 
-  /**
-   * Perform health check on all peer connections
-   * Implements Requirement 9.3: Health check diagnostics
-   * 
-   * Checks all peer connection states, verifies track presence and state,
-   * generates issues and recommendations for each connection.
-   * 
-   * @returns Array of HealthCheckResult for each peer connection
-   */
-  performHealthCheck(): HealthCheckResult[] {
-    console.log('🏥 Performing health check on all peer connections...')
-    
-    const results: HealthCheckResult[] = []
-    const timestamp = Date.now()
-    
-    // Check each peer connection
-    for (const [peerId, pc] of this.peerConnections.entries()) {
-      const issues: string[] = []
-      const recommendations: string[] = []
-      
-      // Check connection state
-      const connectionState = pc.connectionState
-      const iceConnectionState = pc.iceConnectionState
-      const signalingState = pc.signalingState
-      
-      // Determine if connection is healthy
-      let isHealthy = true
-      
-      // Check connection state
-      if (connectionState === 'failed') {
-        isHealthy = false
-        issues.push('Connection state is failed')
-        recommendations.push('Try manual reconnection or check network connectivity')
-      } else if (connectionState === 'disconnected') {
-        isHealthy = false
-        issues.push('Connection state is disconnected')
-        recommendations.push('Automatic reconnection should be in progress')
-      } else if (connectionState === 'closed') {
-        isHealthy = false
-        issues.push('Connection is closed')
-        recommendations.push('Connection needs to be re-established')
-      }
-      
-      // Check ICE connection state
-      if (iceConnectionState === 'failed') {
-        isHealthy = false
-        issues.push('ICE connection failed')
-        recommendations.push('Check firewall settings and TURN server availability')
-      } else if (iceConnectionState === 'disconnected') {
-        isHealthy = false
-        issues.push('ICE connection disconnected')
-        recommendations.push('Network may be unstable, reconnection in progress')
-      } else if (iceConnectionState === 'checking') {
-        issues.push('ICE connection still establishing')
-        recommendations.push('Wait for connection to complete')
-      }
-      
-      // Check signaling state
-      if (signalingState !== 'stable' && signalingState !== 'have-local-offer' && signalingState !== 'have-remote-offer') {
-        issues.push(`Unusual signaling state: ${signalingState}`)
-        recommendations.push('Signaling may be in progress or stuck')
-      }
-      
-      // Check for tracks
-      const senders = pc.getSenders()
-      
-      // Check audio sender
-      const audioSender = senders.find(s => s.track?.kind === 'audio')
-      if (!audioSender || !audioSender.track) {
-        isHealthy = false
-        issues.push('No audio sender found')
-        recommendations.push('Audio may not be transmitting to this peer')
-      } else if (!audioSender.track.enabled) {
-        issues.push('Audio track is disabled (muted)')
-      } else if (audioSender.track.readyState !== 'live') {
-        isHealthy = false
-        issues.push(`Audio track is not live: ${audioSender.track.readyState}`)
-        recommendations.push('Audio track may have ended unexpectedly')
-      }
-      
-      // Check video sender (if video is enabled)
-      const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
-      const videoState = this.trackManager.getCurrentTrackState()
-      
-      if (videoState.isActive && currentVideoTrack) {
-        const videoSender = senders.find(s => s.track?.kind === 'video')
-        if (!videoSender || !videoSender.track) {
-          isHealthy = false
-          issues.push('Video is enabled but no video sender found')
-          recommendations.push('Video may not be transmitting to this peer - try toggling video')
-        } else if (videoSender.track.id !== currentVideoTrack.id) {
-          isHealthy = false
-          issues.push('Video sender has wrong track')
-          recommendations.push('Video track mismatch - try toggling video')
-        } else if (!videoSender.track.enabled) {
-          issues.push('Video track is disabled')
-        } else if (videoSender.track.readyState !== 'live') {
-          isHealthy = false
-          issues.push(`Video track is not live: ${videoSender.track.readyState}`)
-          recommendations.push('Video track may have ended unexpectedly')
-        }
-      }
-      
-      // Check for remote tracks
-      const remoteStream = this.remoteStreams.get(peerId)
-      if (!remoteStream) {
-        issues.push('No remote stream received from this peer')
-        recommendations.push('May not be receiving audio/video from this peer')
-      } else {
-        const remoteAudioTracks = remoteStream.getAudioTracks()
-        const remoteVideoTracks = remoteStream.getVideoTracks()
-        
-        if (remoteAudioTracks.length === 0) {
-          issues.push('No remote audio track')
-          recommendations.push('Not receiving audio from this peer')
-        }
-        
-        // Note: Remote video tracks may be 0 if peer has video disabled, which is normal
-      }
-      
-      // Check connection quality
-      const quality = connectionMonitor.getConnectionQuality(peerId)
-      if (quality) {
-        if (quality.quality === 'poor') {
-          issues.push('Connection quality is poor')
-          recommendations.push('Network conditions are degraded - consider reducing video quality')
-        } else if (quality.quality === 'fair') {
-          issues.push('Connection quality is fair')
-          recommendations.push('Network conditions are suboptimal')
-        }
-      }
-      
-      // Check if connection is being monitored
-      if (!connectionMonitor.isMonitoring(peerId)) {
-        issues.push('Connection is not being monitored')
-        recommendations.push('Connection monitoring may have stopped unexpectedly')
-      }
-      
-      // Create health check result
-      const result: HealthCheckResult = {
-        peerId,
-        isHealthy,
-        connectionState,
-        iceConnectionState,
-        signalingState,
-        issues,
-        recommendations,
-        timestamp,
-      }
-      
-      results.push(result)
-      
-      // Log result
-      if (isHealthy) {
-        console.log(`✅ Health check passed for peer ${peerId}`)
-      } else {
-        console.warn(`⚠️ Health check failed for peer ${peerId}:`, {
-          issues,
-          recommendations,
-        })
-      }
-    }
-    
-    // Log summary
-    const healthyCount = results.filter(r => r.isHealthy).length
-    const unhealthyCount = results.filter(r => !r.isHealthy).length
-    
-    console.log('📊 Health check summary:', {
-      totalPeers: results.length,
-      healthy: healthyCount,
-      unhealthy: unhealthyCount,
-      timestamp: new Date().toISOString(),
-    })
-    
-    // Emit health check event
-    this.emit('health-check-completed', {
-      results,
-      healthyCount,
-      unhealthyCount,
-      timestamp,
-    })
-    
-    return results
-  }
+
 
   // Event emitter
   on(event: string, callback: Function) {

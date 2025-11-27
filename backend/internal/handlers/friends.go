@@ -27,7 +27,7 @@ func NewFriendHandler(logger *zap.Logger, db *database.CassandraDB) *FriendHandl
 
 // SendFriendRequestRequest representa a requisição de envio de solicitação
 type SendFriendRequestRequest struct {
-	Username string `json:"username"`
+	Username string `json:"username"` // pode ser "dannyah" ou "dannyah#1234"
 }
 
 // FriendRequestResponse representa uma solicitação de amizade
@@ -42,13 +42,16 @@ type FriendRequestResponse struct {
 
 // FriendResponse representa um amigo
 type FriendResponse struct {
-	UserID      string `json:"userId"`
-	Username    string `json:"username"`
-	Nickname    string `json:"nickname,omitempty"`
-	Avatar      string `json:"avatar,omitempty"`
-	Status      string `json:"status"` // online, offline, idle, dnd
-	DMChannelID string `json:"dmChannelId"`
-	AddedAt     int64  `json:"addedAt"`
+	UserID        string `json:"userId"`
+	Username      string `json:"username"`      // username sem discriminador
+	Discriminator string `json:"discriminator"` // discriminador #1234
+	DisplayName   string `json:"displayName"`   // nome de exibição
+	Nickname      string `json:"nickname,omitempty"`
+	Avatar        string `json:"avatar,omitempty"`
+	Bio           string `json:"bio,omitempty"`
+	Status        string `json:"status"` // online, offline, idle, dnd
+	DMChannelID   string `json:"dmChannelId"`
+	AddedAt       int64  `json:"addedAt"`
 }
 
 // SendFriendRequest envia uma solicitação de amizade
@@ -71,8 +74,22 @@ func (fh *FriendHandler) SendFriendRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Buscar usuário destino pelo username
-	targetUser, err := fh.db.GetUserByUsername(req.Username)
+	// Buscar usuário destino pelo username (com ou sem discriminador)
+	// Formato aceito: "dannyah" ou "dannyah#1234"
+	var targetUser map[string]interface{}
+	var err error
+	
+	// Verificar se tem discriminador (#)
+	if len(req.Username) > 0 && req.Username[len(req.Username)-5] == '#' {
+		// Formato: username#1234
+		username := req.Username[:len(req.Username)-5]
+		discriminator := req.Username[len(req.Username)-4:]
+		targetUser, err = fh.db.GetUserByUsernameAndDiscriminator(username, discriminator)
+	} else {
+		// Apenas username - buscar qualquer usuário com esse username
+		targetUser, err = fh.db.GetUserByUsername(req.Username)
+	}
+	
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return

@@ -8,7 +8,7 @@ import { useVoiceStore } from '../store/voiceStore'
 import { wsService } from '../services/websocket'
 import { webrtcService } from '../services/webrtc'
 import { api } from '../services/api'
-import { Send, Hash, Users, UserPlus, Phone, PhoneOff } from 'lucide-react'
+import { Send, Hash, Users, UserPlus, Phone, PhoneOff, Volume2 } from 'lucide-react'
 import MessageList from '../components/MessageList'
 import ServerInviteModal from '../components/ServerInviteModal'
 import VoiceChannel from '../components/VoiceChannel'
@@ -101,10 +101,17 @@ export default function ChatScreen() {
       // Inscrever no canal via WebSocket
       wsService.subscribeToChannel(channelId)
       
-      // Carregar primeira página após reset
-      setTimeout(() => {
-        loadMore()
-      }, 100)
+      // Se for canal de voz, entrar automaticamente
+      if (currentChannel?.type === 'voice' && !isConnected) {
+        handleJoinVoice()
+      }
+      
+      // Carregar primeira página após reset (apenas para canais de texto)
+      if (currentChannel?.type !== 'voice') {
+        setTimeout(() => {
+          loadMore()
+        }, 100)
+      }
       
       // Desinscrever ao trocar de canal
       return () => {
@@ -112,7 +119,7 @@ export default function ChatScreen() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId])
+  }, [channelId, currentChannel?.type])
 
   // Listener para novas mensagens via WebSocket
   useEffect(() => {
@@ -248,8 +255,13 @@ export default function ChatScreen() {
           : 'Direct Message')
     : ''
 
-  // Ícone do canal (Hash para servidor, Users para DM)
-  const ChannelIcon = isDM ? Users : Hash
+  // Ícone do canal baseado no tipo
+  const getChannelIcon = () => {
+    if (isDM) return Users
+    if (currentChannel?.type === 'voice') return Volume2
+    return Hash
+  }
+  const ChannelIcon = getChannelIcon()
 
   // Retorno antecipado se não há channelId (APÓS todos os hooks)
   if (!channelId) {
@@ -274,10 +286,27 @@ export default function ChatScreen() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden" style={{ maxWidth: '100%', width: '100%' }}>
       {/* Header */}
-      <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4 gap-4">
+      <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4 gap-4 shadow-sm">
         {currentChannel && (
           <>
             <div className="flex items-center gap-3 flex-1">
+              {/* Indicador visual do canal - apenas barra colorida e ícone */}
+              <div className="flex items-center gap-2">
+                <div className={`w-1 h-8 rounded-full ${
+                  currentChannel.type === 'voice' 
+                    ? 'bg-green-500' 
+                    : currentChannel.type === 'dm' 
+                    ? 'bg-blue-500' 
+                    : 'bg-primary-500'
+                }`} />
+                <ChannelIcon className={`w-5 h-5 ${
+                  currentChannel.type === 'voice' 
+                    ? 'text-green-500' 
+                    : currentChannel.type === 'dm' 
+                    ? 'text-blue-500' 
+                    : 'text-dark-400'
+                }`} />
+              </div>
               {/* Avatar para DM */}
               {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && (
                 <div className="relative">

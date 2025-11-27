@@ -15,7 +15,6 @@ export default function HomeScreen() {
   
   const friends = useFriendsStore((state) => state.friends)
   const friendRequests = useFriendsStore((state) => state.friendRequests)
-  const dmChannels = useFriendsStore((state) => state.dmChannels)
   const user = useAuthStore((state) => state.user)
 
   const pendingRequests = friendRequests.filter((r) => r.status === 'pending' && r.toUserId === user?.id)
@@ -82,7 +81,7 @@ export default function HomeScreen() {
                 : 'text-dark-400 hover:text-white hover:bg-dark-800'
             }`}
           >
-            Online
+            Disponivel
           </button>
           <button
             onClick={() => setActiveTab('all')}
@@ -302,7 +301,7 @@ export default function HomeScreen() {
         </div>
 
         {/* Sidebar de DMs */}
-        <div className="w-60 bg-dark-800 border-l border-dark-700 p-4">
+        {/* <div className="w-60 bg-dark-800 border-l border-dark-700 p-4">
           <h3 className="text-xs font-semibold text-dark-400 uppercase mb-3">
             Mensagens Diretas
           </h3>
@@ -341,7 +340,7 @@ export default function HomeScreen() {
               ))}
             </div>
           )}
-        </div>
+        </div> */}
       </div>
     </div>
   )

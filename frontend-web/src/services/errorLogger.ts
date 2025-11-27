@@ -71,15 +71,9 @@ export class ErrorLogger {
 
     // Log to console with full context
     console.error('❌ Error occurred:', {
-      operation: context.operation,
       error: errorLog.errorMessage,
       errorName: errorLog.errorName,
       errorType: errorLog.errorType,
-      peerId: context.peerId,
-      channelId: context.channelId,
-      connectionState: context.connectionState,
-      iceConnectionState: context.iceConnectionState,
-      signalingState: context.signalingState,
       recoveryAttempted,
       recoverySuccessful,
       timestamp: new Date(errorLog.timestamp).toISOString(),
