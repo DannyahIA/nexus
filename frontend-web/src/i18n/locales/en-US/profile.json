@@ -1,0 +1,14 @@
+{
+  "uploadAvatar": "Upload avatar",
+  "changeAvatar": "Change avatar",
+  "removeAvatar": "Remove avatar",
+  "profile": "Profile",
+  "editProfile": "Edit profile",
+  "displayName": "Display name",
+  "bio": "Bio",
+  "status": "Status",
+  "online": "Online",
+  "offline": "Offline",
+  "away": "Away",
+  "dnd": "Do not disturb"
+}

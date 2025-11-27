@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { Settings, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import UserProfileModal from './UserProfileModal'
+import LanguageSelector from './LanguageSelector'
 
 interface UserProfilePanelProps {
   isMuted?: boolean
@@ -85,6 +86,8 @@ export default function UserProfilePanel({
               {isDeafened ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
           )}
+
+          <LanguageSelector />
 
           <button
             onClick={() => setShowProfileModal(true)}

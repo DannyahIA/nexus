@@ -1,0 +1,13 @@
+{
+  "sendMessage": "Enviar mensagem",
+  "typing": "{{user}} está digitando...",
+  "message": "Mensagem",
+  "messages": "Mensagens",
+  "noMessages": "Nenhuma mensagem ainda",
+  "loadMore": "Carregar mais",
+  "channel": "Canal",
+  "channels": "Canais",
+  "createChannel": "Criar canal",
+  "deleteChannel": "Excluir canal",
+  "editChannel": "Editar canal"
+}

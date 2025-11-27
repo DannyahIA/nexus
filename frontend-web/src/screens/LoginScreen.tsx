@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
 import { LogIn } from 'lucide-react'
 
 export default function LoginScreen() {
+  const { t } = useTranslation('auth')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -21,7 +23,7 @@ export default function LoginScreen() {
       await login(email, password)
       navigate('/home')
     } catch (err) {
-      setError('Failed to login. Please check your credentials.')
+      setError(t('loginError'))
     } finally {
       setLoading(false)
     }
@@ -35,9 +37,9 @@ export default function LoginScreen() {
             <div className="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center mb-4">
               <LogIn className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Welcome to Nexus</h1>
+            <h1 className="text-3xl font-bold text-white mb-2">{t('welcomeToNexus')}</h1>
             <p className="text-dark-400 text-center">
-              Connect, collaborate, and communicate
+              {t('tagline')}
             </p>
           </div>
 
@@ -50,7 +52,7 @@ export default function LoginScreen() {
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-dark-300 mb-2">
-                Email
+                {t('email')}
               </label>
               <input
                 id="email"
@@ -58,14 +60,14 @@ export default function LoginScreen() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition"
-                placeholder="Enter your email"
+                placeholder={t('enterYourEmail')}
                 required
               />
             </div>
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-dark-300 mb-2">
-                Password
+                {t('password')}
               </label>
               <input
                 id="password"
@@ -73,7 +75,7 @@ export default function LoginScreen() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition"
-                placeholder="Enter your password"
+                placeholder={t('enterYourPassword')}
                 required
               />
             </div>
@@ -86,12 +88,12 @@ export default function LoginScreen() {
               {loading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Logging in...
+                  {t('loggingIn')}
                 </>
               ) : (
                 <>
                   <LogIn className="w-5 h-5" />
-                  Log In
+                  {t('logIn')}
                 </>
               )}
             </button>
@@ -99,16 +101,16 @@ export default function LoginScreen() {
 
           <div className="mt-6 text-center">
             <p className="text-dark-400 text-sm">
-              Don't have an account?{' '}
+              {t('dontHaveAccount')}{' '}
               <a href="/register" className="text-primary-500 hover:text-primary-400 font-medium">
-                Sign up
+                {t('signUp')}
               </a>
             </p>
           </div>
         </div>
 
         <div className="mt-6 text-center text-dark-500 text-sm">
-          <p>Made with ❤️ by EclipsIA Team</p>
+          <p>{t('madeWithLove')}</p>
         </div>
       </div>
     </div>

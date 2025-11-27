@@ -1,0 +1,43 @@
+{
+  "title": "Friends",
+  "tabs": {
+    "online": "Online",
+    "all": "All",
+    "pending": "Pending",
+    "addFriend": "Add Friend"
+  },
+  "sections": {
+    "onlineTitle": "Online — {{count}}",
+    "allFriendsTitle": "All Friends — {{count}}",
+    "pendingRequestsTitle": "Pending Requests — {{count}}"
+  },
+  "empty": {
+    "noOnlineFriends": "There's no friends online at the moment",
+    "noFriends": "You don't have any friends yet",
+    "noFriendsSubtext": "How about adding someone?",
+    "noPendingRequests": "No pending requests"
+  },
+  "actions": {
+    "sendMessage": "Send Message",
+    "accept": "Accept",
+    "deny": "Deny"
+  },
+  "addFriend": {
+    "title": "Add Friend",
+    "description": "You can add friends using their username.",
+    "placeholder": "Enter username",
+    "sendRequest": "Send Request",
+    "sending": "Sending...",
+    "requestSent": "Friend request sent to {{username}}!",
+    "error": "Error sending request"
+  },
+  "status": {
+    "online": "online",
+    "idle": "idle",
+    "dnd": "dnd",
+    "offline": "offline"
+  },
+  "friendRequest": {
+    "received": "Friend request received"
+  }
+}

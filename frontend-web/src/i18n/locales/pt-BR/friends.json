@@ -1,0 +1,43 @@
+{
+  "title": "Amigos",
+  "tabs": {
+    "online": "Online",
+    "all": "Todos",
+    "pending": "Pendentes",
+    "addFriend": "Adicionar Amigo"
+  },
+  "sections": {
+    "onlineTitle": "Online — {{count}}",
+    "allFriendsTitle": "Todos os Amigos — {{count}}",
+    "pendingRequestsTitle": "Solicitações Pendentes — {{count}}"
+  },
+  "empty": {
+    "noOnlineFriends": "Não há amigos online no momento",
+    "noFriends": "Você ainda não tem amigos",
+    "noFriendsSubtext": "Que tal adicionar alguém?",
+    "noPendingRequests": "Nenhuma solicitação pendente"
+  },
+  "actions": {
+    "sendMessage": "Enviar Mensagem",
+    "accept": "Aceitar",
+    "deny": "Recusar"
+  },
+  "addFriend": {
+    "title": "Adicionar Amigo",
+    "description": "Você pode adicionar amigos usando o nome de usuário deles.",
+    "placeholder": "Digite o nome de usuário",
+    "sendRequest": "Enviar Solicitação",
+    "sending": "Enviando...",
+    "requestSent": "Solicitação de amizade enviada para {{username}}!",
+    "error": "Erro ao enviar solicitação"
+  },
+  "status": {
+    "online": "online",
+    "idle": "ausente",
+    "dnd": "não perturbe",
+    "offline": "offline"
+  },
+  "friendRequest": {
+    "received": "Solicitação de amizade recebida"
+  }
+}

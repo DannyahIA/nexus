@@ -9,6 +9,7 @@ import FriendsScreen from './screens/FriendsScreen'
 import MainLayout from './screens/MainLayout'
 import ErrorNotificationContainer from './components/ErrorNotificationContainer'
 import { useAuthStore } from './store/authStore'
+import './i18n' // Initialize i18n
 
 const queryClient = new QueryClient({
   defaultOptions: {

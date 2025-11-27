@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
 import { Users, Inbox, MessageSquare, MoreVertical, X, Check } from 'lucide-react'
@@ -8,6 +9,7 @@ import { api } from '../services/api'
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
 
 export default function HomeScreen() {
+  const { t } = useTranslation('friends')
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('online')
   const [searchQuery, setSearchQuery] = useState('')
@@ -30,11 +32,11 @@ export default function HomeScreen() {
     setSendingRequest(true)
     try {
       await api.sendFriendRequest(searchQuery.trim())
-      alert(`Friend request sent to ${searchQuery}!`)
+      alert(t('addFriend.requestSent', { username: searchQuery }))
       setSearchQuery('')
     } catch (error: any) {
       console.error('Failed to send friend request:', error)
-      const errorMsg = error.response?.data || error.message || 'Error sending request'
+      const errorMsg = error.response?.data || error.message || t('addFriend.error')
       alert(errorMsg)
     } finally {
       setSendingRequest(false)
@@ -61,7 +63,7 @@ export default function HomeScreen() {
     <div className="flex-1 flex flex-col bg-dark-900">
       <div className="h-12 px-4 flex items-center border-b border-dark-700 shadow-md">
         <Users className="w-5 h-5 mr-3 text-dark-400" />
-        <h1 className="font-semibold text-white">Friends</h1>
+        <h1 className="font-semibold text-white">{t('title')}</h1>
 
         <div className="w-px h-6 bg-dark-700 mx-4" />
 
@@ -73,7 +75,7 @@ export default function HomeScreen() {
               : 'text-dark-400 hover:text-white hover:bg-dark-800'
               }`}
           >
-            Online
+            {t('tabs.online')}
           </button>
           <button
             onClick={() => setActiveTab('all')}
@@ -82,7 +84,7 @@ export default function HomeScreen() {
               : 'text-dark-400 hover:text-white hover:bg-dark-800'
               }`}
           >
-            All
+            {t('tabs.all')}
           </button>
           {pendingRequests && pendingRequests.length > 0 && (<button
             onClick={() => setActiveTab('pending')}
@@ -91,7 +93,7 @@ export default function HomeScreen() {
               : 'text-dark-400 hover:text-white hover:bg-dark-800'
               }`}
           >
-            Pending
+            {t('tabs.pending')}
             {pendingRequests.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 bg-red-600 text-white text-xs rounded-full">
                 {pendingRequests.length}
@@ -105,7 +107,7 @@ export default function HomeScreen() {
               : 'text-green-500 hover:text-green-400'
               }`}
           >
-            Add Friend
+            {t('tabs.addFriend')}
           </button>
         </div>
       </div>
@@ -115,11 +117,11 @@ export default function HomeScreen() {
           {activeTab === 'online' && (
             <div className="p-6">
               <h2 className="text-xs font-semibold text-dark-400 uppercase mb-4">
-                Online — {onlineFriends.length}
+                {t('sections.onlineTitle', { count: onlineFriends.length })}
               </h2>
               {onlineFriends.length === 0 ? (
                 <div className="text-center py-12 text-dark-400">
-                  <p>There's no friends online at the moment</p>
+                  <p>{t('empty.noOnlineFriends')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -138,12 +140,12 @@ export default function HomeScreen() {
                       </div>
                       <div className="flex-1">
                         <p className="font-medium text-white">{friend.username}</p>
-                        <p className="text-sm text-dark-400">{friend.status}</p>
+                        <p className="text-sm text-dark-400">{t(`status.${friend.status}`)}</p>
                       </div>
                       <button
                         onClick={() => friend.dmChannelId && handleDMClick(friend.dmChannelId)}
                         className="p-2 rounded-full bg-dark-700 hover:bg-dark-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Enviar Mensagem"
+                        title={t('actions.sendMessage')}
                       >
                         <MessageSquare className="w-4 h-4" />
                       </button>
@@ -160,12 +162,12 @@ export default function HomeScreen() {
           {activeTab === 'all' && (
             <div className="p-6">
               <h2 className="text-xs font-semibold text-dark-400 uppercase mb-4">
-                All Friends — {friends.length}
+                {t('sections.allFriendsTitle', { count: friends.length })}
               </h2>
               {friends.length === 0 ? (
                 <div className="text-center py-12 text-dark-400">
-                  <p>You don't have any friends yet</p>
-                  <p className="text-sm mt-2">How about adding someone?</p>
+                  <p>{t('empty.noFriends')}</p>
+                  <p className="text-sm mt-2">{t('empty.noFriendsSubtext')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -206,12 +208,12 @@ export default function HomeScreen() {
           {activeTab === 'pending' && (
             <div className="p-6">
               <h2 className="text-xs font-semibold text-dark-400 uppercase mb-4">
-                Pending Requests — {pendingRequests.length}
+                {t('sections.pendingRequestsTitle', { count: pendingRequests.length })}
               </h2>
               {pendingRequests.length === 0 ? (
                 <div className="text-center py-12 text-dark-400">
                   <Inbox className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p>No pending requests</p>
+                  <p>{t('empty.noPendingRequests')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -225,19 +227,19 @@ export default function HomeScreen() {
                       </div>
                       <div className="flex-1">
                         <p className="font-medium text-white">{request.fromUsername || 'Unknown'}</p>
-                        <p className="text-sm text-dark-400">Friend request received</p>
+                        <p className="text-sm text-dark-400">{t('friendRequest.received')}</p>
                       </div>
                       <button
                         onClick={() => handleAcceptRequest(request.fromUserId)}
                         className="p-2 rounded-full bg-green-600 hover:bg-green-700"
-                        title="Accept"
+                        title={t('actions.accept')}
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleRejectRequest(request.fromUserId)}
                         className="p-2 rounded-full bg-red-600 hover:bg-red-700"
-                        title="Deny"
+                        title={t('actions.deny')}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -250,15 +252,15 @@ export default function HomeScreen() {
 
           {activeTab === 'add' && (
             <div className="p-6">
-              <h2 className="text-xl font-bold text-white mb-2">Add Friend</h2>
+              <h2 className="text-xl font-bold text-white mb-2">{t('addFriend.title')}</h2>
               <p className="text-dark-400 mb-6">
-                You can add friends using their username.
+                {t('addFriend.description')}
               </p>
               <div className="bg-dark-800 p-4 rounded-lg">
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Digite o nome de usuário"
+                    placeholder={t('addFriend.placeholder')}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -273,7 +275,7 @@ export default function HomeScreen() {
                     disabled={!searchQuery.trim() || sendingRequest}
                     className="px-6 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
                   >
-                    {sendingRequest ? 'Sending...' : 'Send Request'}
+                    {sendingRequest ? t('addFriend.sending') : t('addFriend.sendRequest')}
                   </button>
                 </div>
               </div>

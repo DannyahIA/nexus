@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
 import { UserPlus, Mail, User, Lock, Eye, EyeOff } from 'lucide-react'
 
 export default function RegisterScreen() {
+  const { t } = useTranslation('auth')
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -18,28 +20,28 @@ export default function RegisterScreen() {
 
   const validateForm = () => {
     if (!email || !username || !password || !confirmPassword) {
-      setError('All fields are required')
+      setError(t('allFieldsRequired'))
       return false
     }
 
     if (username.length < 3) {
-      setError('Username must be at least 3 characters long')
+      setError(t('usernameMinLength'))
       return false
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters long')
+      setError(t('passwordMinLength'))
       return false
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match')
+      setError(t('passwordsDoNotMatch'))
       return false
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
-      setError('Please enter a valid email address')
+      setError(t('invalidEmail'))
       return false
     }
 
@@ -60,7 +62,7 @@ export default function RegisterScreen() {
       await register(email, username, password)
       navigate('/home')
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create account. Please try again.')
+      setError(err.response?.data?.error || t('registerError'))
     } finally {
       setLoading(false)
     }
@@ -74,9 +76,9 @@ export default function RegisterScreen() {
             <div className="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center mb-4">
               <UserPlus className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Create Account</h1>
+            <h1 className="text-3xl font-bold text-white mb-2">{t('createAccount')}</h1>
             <p className="text-dark-400 text-center">
-              Join Nexus and start collaborating
+              {t('joinNexus')}
             </p>
           </div>
 
@@ -89,7 +91,7 @@ export default function RegisterScreen() {
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-dark-300 mb-2">
-                Email
+                {t('email')}
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-500" />
@@ -99,7 +101,7 @@ export default function RegisterScreen() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition"
-                  placeholder="you@example.com"
+                  placeholder={t('emailPlaceholder')}
                   required
                 />
               </div>
@@ -107,7 +109,7 @@ export default function RegisterScreen() {
 
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-dark-300 mb-2">
-                Username
+                {t('username')}
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-500" />
@@ -117,17 +119,17 @@ export default function RegisterScreen() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition"
-                  placeholder="Choose a username"
+                  placeholder={t('usernamePlaceholder')}
                   required
                   minLength={3}
                 />
               </div>
-              <p className="mt-1 text-xs text-dark-500">At least 3 characters</p>
+              <p className="mt-1 text-xs text-dark-500">{t('usernameHint')}</p>
             </div>
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-dark-300 mb-2">
-                Password
+                {t('password')}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-500" />
@@ -137,7 +139,7 @@ export default function RegisterScreen() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-12 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition"
-                  placeholder="Create a strong password"
+                  placeholder={t('passwordPlaceholder')}
                   required
                   minLength={6}
                 />
@@ -149,12 +151,12 @@ export default function RegisterScreen() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-dark-500">At least 6 characters</p>
+              <p className="mt-1 text-xs text-dark-500">{t('passwordHint')}</p>
             </div>
 
             <div>
               <label htmlFor="confirmPassword" className="block text-sm font-medium text-dark-300 mb-2">
-                Confirm Password
+                {t('confirmPassword')}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-500" />
@@ -164,7 +166,7 @@ export default function RegisterScreen() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full pl-10 pr-12 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition"
-                  placeholder="Confirm your password"
+                  placeholder={t('confirmPasswordPlaceholder')}
                   required
                   minLength={6}
                 />
@@ -186,12 +188,12 @@ export default function RegisterScreen() {
               {loading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Creating account...
+                  {t('creatingAccount')}
                 </>
               ) : (
                 <>
                   <UserPlus className="w-5 h-5" />
-                  Create Account
+                  {t('createAccount')}
                 </>
               )}
             </button>
@@ -199,16 +201,16 @@ export default function RegisterScreen() {
 
           <div className="mt-6 text-center">
             <p className="text-dark-400 text-sm">
-              Already have an account?{' '}
+              {t('alreadyHaveAccount')}{' '}
               <a href="/login" className="text-primary-500 hover:text-primary-400 font-medium">
-                Log in
+                {t('signIn')}
               </a>
             </p>
           </div>
         </div>
 
         <div className="mt-6 text-center text-dark-500 text-sm">
-          <p>Made with ❤️ by EclipsIA Team</p>
+          <p>{t('madeWithLove')}</p>
         </div>
       </div>
     </div>
