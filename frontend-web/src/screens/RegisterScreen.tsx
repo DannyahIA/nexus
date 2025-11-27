@@ -58,7 +58,7 @@ export default function RegisterScreen() {
 
     try {
       await register(email, username, password)
-      navigate('/chat')
+      navigate('/home')
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create account. Please try again.')
     } finally {

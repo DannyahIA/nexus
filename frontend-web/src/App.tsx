@@ -5,7 +5,9 @@ import RegisterScreen from './screens/RegisterScreen'
 import ChatScreen from './screens/ChatScreen'
 import TasksScreen from './screens/TasksScreen'
 import HomeScreen from './screens/HomeScreen'
+import FriendsScreen from './screens/FriendsScreen'
 import MainLayout from './screens/MainLayout'
+import ErrorNotificationContainer from './components/ErrorNotificationContainer'
 import { useAuthStore } from './store/authStore'
 
 const queryClient = new QueryClient({
@@ -26,6 +28,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        {/* Error Notification System (Requirement 6.3) */}
+        <ErrorNotificationContainer />
+        
         <Routes>
           <Route path="/login" element={<LoginScreen />} />
           <Route path="/register" element={<RegisterScreen />} />
@@ -42,6 +47,7 @@ function App() {
             {/* Home view - Friends & DMs */}
             <Route index element={<Navigate to="/home" replace />} />
             <Route path="home" element={<HomeScreen />} />
+            <Route path="friends" element={<FriendsScreen />} />
             
             {/* DM routes */}
             <Route path="dm/:channelId" element={<ChatScreen />} />

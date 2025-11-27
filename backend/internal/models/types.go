@@ -4,16 +4,30 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/golang-jwt/jwt"
 )
+
+// Claims representa as claims JWT customizadas
+type Claims struct {
+	UserID        string `json:"user_id"`
+	Email         string `json:"email"`
+	Username      string `json:"username"`
+	Discriminator string `json:"discriminator"`
+	DisplayName   string `json:"display_name"`
+	jwt.StandardClaims
+}
 
 // User representa um usuário do sistema
 type User struct {
-	ID        uuid.UUID
-	Email     string
-	Username  string
-	AvatarURL string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            uuid.UUID
+	Email         string
+	Username      string     // username único (ex: dannyah)
+	Discriminator string     // discriminador de 4 dígitos (ex: 1234)
+	DisplayName   string     // nome de exibição que pode ser mudado
+	AvatarURL     string
+	Bio           string     // biografia/status customizado
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Channel representa um canal de comunicação
@@ -44,11 +58,11 @@ type Group struct {
 
 // GroupMember representa a associação de um usuário a um grupo
 type GroupMember struct {
-	GroupID   uuid.UUID
-	UserID    uuid.UUID
-	Role      string // "owner", "admin", "moderator", "member"
-	Nickname  string
-	JoinedAt  time.Time
+	GroupID  uuid.UUID
+	UserID   uuid.UUID
+	Role     string // "owner", "admin", "moderator", "member"
+	Nickname string
+	JoinedAt time.Time
 }
 
 // ChannelMember representa a associação de um usuário a um canal

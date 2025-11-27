@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/nexus/backend/internal/database"
+	"github.com/nexus/backend/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -88,7 +89,7 @@ func (mh *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		// Buscar username do usuário
 		username := "Unknown User"
 		authorID := row["author_id"].(string)
-		
+
 		userRow, err := mh.db.GetUserByID(authorID)
 		if err != nil {
 			mh.logger.Warn("failed to get user info for message",
@@ -159,7 +160,7 @@ func (mh *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Obter usuário do contexto (JWT claims)
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -223,7 +224,7 @@ func (mh *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -296,7 +297,7 @@ func (mh *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

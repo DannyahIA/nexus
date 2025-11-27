@@ -1,16 +1,24 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, useParams, useNavigate } from 'react-router-dom'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelList from '../components/ChannelList'
+import VoiceStatus from '../components/VoiceStatus'
+import UserProfilePanel from '../components/UserProfilePanel'
 import { useServerStore } from '../store/serverStore'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
+import { useVoiceStore } from '../store/voiceStore'
+import { webrtcService } from '../services/webrtc'
 import { api } from '../services/api'
 import { wsService } from '../services/websocket'
+import { useVoiceUsers } from '../hooks/useVoiceUsers'
 
 export default function MainLayout() {
   const { serverId } = useParams()
   const navigate = useNavigate()
+  
+  // Hook para gerenciar usuários em canais de voz
+  useVoiceUsers()
   
   const servers = useServerStore((state) => state.servers)
   const setServers = useServerStore((state) => state.setServers)
@@ -25,6 +33,33 @@ export default function MainLayout() {
   
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
+  
+  // Voice state
+  const isConnected = useVoiceStore((state) => state.isConnected)
+  const currentChannelName = useVoiceStore((state) => state.currentChannelName)
+  const setDisconnected = useVoiceStore((state) => state.setDisconnected)
+  
+  // Audio controls
+  const [isMuted, setIsMuted] = useState(false)
+  const [isDeafened, setIsDeafened] = useState(false)
+  
+  const handleDisconnectVoice = () => {
+    webrtcService.leaveVoiceChannel()
+    setDisconnected()
+  }
+
+  const handleToggleMute = () => {
+    setIsMuted(!isMuted)
+    // TODO: Implementar mute real do microfone
+  }
+
+  const handleToggleDeafen = () => {
+    setIsDeafened(!isDeafened)
+    if (!isDeafened) {
+      setIsMuted(true) // Deafen também muta
+    }
+    // TODO: Implementar deafen real do áudio
+  }
 
   useEffect(() => {
     // Verificar autenticação
@@ -109,6 +144,10 @@ export default function MainLayout() {
           serverId={serverId}
           serverName={currentServer?.name}
           channels={currentChannels}
+          isMuted={isMuted}
+          isDeafened={isDeafened}
+          onToggleMute={handleToggleMute}
+          onToggleDeafen={handleToggleDeafen}
         />
       ) : (
         // Mostrar lista de DMs quando não estiver em um servidor
@@ -136,6 +175,22 @@ export default function MainLayout() {
               </button>
             ))}
           </div>
+          
+          {/* Voice Status */}
+          {isConnected && currentChannelName && (
+            <VoiceStatus
+              channelName={currentChannelName}
+              onDisconnect={handleDisconnectVoice}
+            />
+          )}
+
+          {/* User Profile Panel */}
+          <UserProfilePanel
+            isMuted={isMuted}
+            isDeafened={isDeafened}
+            onToggleMute={handleToggleMute}
+            onToggleDeafen={handleToggleDeafen}
+          />
         </div>
       )}
 

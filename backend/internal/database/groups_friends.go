@@ -324,11 +324,11 @@ func (db *CassandraDB) CreateDMChannel(channelID, user1ID, user2ID string) error
 	channelUUID, _ := gocql.ParseUUID(channelID)
 	user1UUID, _ := gocql.ParseUUID(user1ID)
 	
-	query1 := `INSERT INTO nexus.channels (channel_id, name, type, owner_id, is_private, created_at, updated_at)
-	           VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query1 := `INSERT INTO nexus.channels (channel_id, name, type, owner_id, created_at, updated_at)
+	           VALUES (?, ?, ?, ?, ?, ?)`
 	
 	now := time.Now()
-	err := db.session.Query(query1, channelUUID, "DM", "dm", user1UUID, true, now, now).Exec()
+	err := db.session.Query(query1, channelUUID, "DM", "dm", user1UUID, now, now).Exec()
 	if err != nil {
 		return err
 	}
@@ -349,45 +349,55 @@ func (db *CassandraDB) CreateDMChannel(channelID, user1ID, user2ID string) error
 
 // GetUserDMChannels retorna canais de DM do usuário
 func (db *CassandraDB) GetUserDMChannels(userID string) ([]map[string]interface{}, error) {
-	query := `SELECT c.channel_id, c.name, c.type, c.created_at
-	          FROM nexus.channels c
-	          INNER JOIN nexus.channel_members cm ON c.channel_id = cm.channel_id
-	          WHERE cm.user_id = ? AND c.type = 'dm' ALLOW FILTERING`
-	
+	// Primeiro buscar os channel_ids onde o usuário é membro
 	userUUID, _ := gocql.ParseUUID(userID)
-	iter := db.session.Query(query, userUUID).Iter()
-	defer iter.Close()
-
-	var results []map[string]interface{}
+	
+	membersQuery := `SELECT channel_id FROM nexus.channel_members WHERE user_id = ?`
+	membersIter := db.session.Query(membersQuery, userUUID).Iter()
+	
+	var channelIDs []gocql.UUID
 	var channelID gocql.UUID
-	var name, channelType string
-	var createdAt time.Time
+	for membersIter.Scan(&channelID) {
+		channelIDs = append(channelIDs, channelID)
+	}
+	membersIter.Close()
 
-	for iter.Scan(&channelID, &name, &channelType, &createdAt) {
-		row := map[string]interface{}{
-			"channel_id": channelID.String(),
-			"name":       name,
-			"type":       channelType,
-			"created_at": createdAt,
+	// Agora buscar os detalhes dos canais que são DMs
+	var results []map[string]interface{}
+	for _, chID := range channelIDs {
+		channelQuery := `SELECT channel_id, name, type, created_at FROM nexus.channels WHERE channel_id = ? AND type = 'dm'`
+		
+		var name, channelType string
+		var createdAt time.Time
+		var foundChannelID gocql.UUID
+		
+		err := db.session.Query(channelQuery, chID).Scan(&foundChannelID, &name, &channelType, &createdAt)
+		if err == nil {
+			row := map[string]interface{}{
+				"channel_id": foundChannelID.String(),
+				"name":       name,
+				"type":       channelType,
+				"created_at": createdAt,
+			}
+			results = append(results, row)
 		}
-		results = append(results, row)
 	}
 
-	return results, iter.Close()
+	return results, nil
 }
 
 // ==================== SERVIDORES ====================
 
 // CreateServer cria um novo servidor
-func (db *CassandraDB) CreateServer(serverID, name, description, ownerID, iconURL string) error {
-	query := `INSERT INTO nexus.groups (group_id, name, description, owner_id, icon_url, type, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+func (db *CassandraDB) CreateServer(serverID, name, description, ownerID, iconURL, inviteCode string) error {
+	query := `INSERT INTO nexus.groups (group_id, name, description, owner_id, icon_url, type, invite_code, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	
 	serverUUID, _ := gocql.ParseUUID(serverID)
 	ownerUUID, _ := gocql.ParseUUID(ownerID)
 	now := time.Now()
 	
-	return db.session.Query(query, serverUUID, name, description, ownerUUID, iconURL, "server", now, now).Exec()
+	return db.session.Query(query, serverUUID, name, description, ownerUUID, iconURL, "server", inviteCode, now, now).Exec()
 }
 
 // AddServerMember adiciona um membro a um servidor
@@ -425,14 +435,14 @@ func (db *CassandraDB) GetUserServers(userID string) ([]map[string]interface{}, 
 
 	// Para cada servidor, busca os detalhes
 	for _, serverID := range serverIDs {
-		serverQuery := `SELECT group_id, name, description, owner_id, icon_url, created_at 
+		serverQuery := `SELECT group_id, name, description, owner_id, icon_url, invite_code, created_at 
 		                FROM nexus.groups WHERE group_id = ? AND type = 'server'`
 		
-		var name, description, iconURL string
+		var name, description, iconURL, inviteCode string
 		var ownerID gocql.UUID
 		var createdAt time.Time
 		
-		if err := db.session.Query(serverQuery, serverID).Scan(&serverID, &name, &description, &ownerID, &iconURL, &createdAt); err != nil {
+		if err := db.session.Query(serverQuery, serverID).Scan(&serverID, &name, &description, &ownerID, &iconURL, &inviteCode, &createdAt); err != nil {
 			if err == gocql.ErrNotFound {
 				continue // Skip se não for um servidor
 			}
@@ -445,6 +455,7 @@ func (db *CassandraDB) GetUserServers(userID string) ([]map[string]interface{}, 
 			"description": description,
 			"owner_id":    ownerID.String(),
 			"icon_url":    iconURL,
+			"invite_code": inviteCode,
 			"created_at":  createdAt.UnixMilli(),
 		}
 		results = append(results, row)
@@ -514,4 +525,107 @@ func (db *CassandraDB) UpdateChannel(channelID, name, description string) error 
 	channelUUID, _ := gocql.ParseUUID(channelID)
 	
 	return db.session.Query(query, name, description, channelUUID).Exec()
+}
+
+// GetChannelMembers retorna membros de um canal
+func (db *CassandraDB) GetChannelMembers(channelID string) ([]map[string]interface{}, error) {
+	query := `SELECT user_id, role, joined_at FROM nexus.channel_members WHERE channel_id = ?`
+	
+	channelUUID, _ := gocql.ParseUUID(channelID)
+	iter := db.session.Query(query, channelUUID).Iter()
+	defer iter.Close()
+
+	var results []map[string]interface{}
+	var userID gocql.UUID
+	var role string
+	var joinedAt time.Time
+
+	for iter.Scan(&userID, &role, &joinedAt) {
+		row := map[string]interface{}{
+			"user_id":   userID.String(),
+			"role":      role,
+			"joined_at": joinedAt,
+		}
+		results = append(results, row)
+	}
+
+	return results, iter.Close()
+}
+
+// FindDMBetweenUsers busca um canal de DM existente entre dois usuários
+func (db *CassandraDB) FindDMBetweenUsers(user1ID, user2ID string) (map[string]interface{}, error) {
+	// Buscar canais de DM do user1
+	user1UUID, _ := gocql.ParseUUID(user1ID)
+	user2UUID, _ := gocql.ParseUUID(user2ID)
+	
+	query := `SELECT c.channel_id, c.type, c.created_at
+	          FROM nexus.channels c
+	          INNER JOIN nexus.channel_members cm1 ON c.channel_id = cm1.channel_id
+	          WHERE cm1.user_id = ? AND c.type = 'dm' ALLOW FILTERING`
+	
+	iter := db.session.Query(query, user1UUID).Iter()
+	defer iter.Close()
+
+	var channelID gocql.UUID
+	var channelType string
+	var createdAt time.Time
+
+	for iter.Scan(&channelID, &channelType, &createdAt) {
+		// Verificar se user2 também é membro deste canal
+		memberQuery := `SELECT user_id FROM nexus.channel_members WHERE channel_id = ? AND user_id = ?`
+		var foundUserID gocql.UUID
+		err := db.session.Query(memberQuery, channelID, user2UUID).Scan(&foundUserID)
+		if err == nil {
+			// Encontrou o canal de DM entre os dois usuários
+			return map[string]interface{}{
+				"channel_id": channelID.String(),
+				"type":       channelType,
+				"created_at": createdAt,
+			}, nil
+		}
+	}
+
+	return nil, gocql.ErrNotFound
+}
+
+// GetServerByInviteCode busca servidor pelo código de convite
+func (db *CassandraDB) GetServerByInviteCode(inviteCode string) (map[string]interface{}, error) {
+	query := `SELECT group_id, name, description, owner_id, icon_url, created_at
+	          FROM nexus.groups WHERE invite_code = ? AND type = 'server' ALLOW FILTERING`
+	
+	var groupID, ownerID gocql.UUID
+	var name, description, iconURL string
+	var createdAt time.Time
+
+	err := db.session.Query(query, inviteCode).Scan(&groupID, &name, &description, &ownerID, &iconURL, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"server_id":   groupID.String(),
+		"name":        name,
+		"description": description,
+		"owner_id":    ownerID.String(),
+		"icon_url":    iconURL,
+		"created_at":  createdAt,
+	}, nil
+}
+
+// IsServerMember verifica se usuário é membro do servidor
+func (db *CassandraDB) IsServerMember(serverID, userID string) (bool, error) {
+	query := `SELECT user_id FROM nexus.group_members WHERE group_id = ? AND user_id = ?`
+	
+	serverUUID, _ := gocql.ParseUUID(serverID)
+	userUUID, _ := gocql.ParseUUID(userID)
+	
+	var foundUserID gocql.UUID
+	err := db.session.Query(query, serverUUID, userUUID).Scan(&foundUserID)
+	if err == gocql.ErrNotFound {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

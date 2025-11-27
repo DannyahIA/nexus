@@ -15,7 +15,6 @@ export default function HomeScreen() {
   
   const friends = useFriendsStore((state) => state.friends)
   const friendRequests = useFriendsStore((state) => state.friendRequests)
-  const dmChannels = useFriendsStore((state) => state.dmChannels)
   const user = useAuthStore((state) => state.user)
 
   const pendingRequests = friendRequests.filter((r) => r.status === 'pending' && r.toUserId === user?.id)
@@ -42,19 +41,21 @@ export default function HomeScreen() {
     }
   }
 
-  const handleAcceptRequest = async (requestId: string) => {
+  const handleAcceptRequest = async (fromUserId: string) => {
     try {
-      await api.acceptFriendRequest(requestId)
+      await api.acceptFriendRequest(fromUserId)
       // Recarregar amigos e solicitações
+      window.location.reload() // Temporário - recarregar página
     } catch (error) {
       console.error('Failed to accept friend request:', error)
     }
   }
 
-  const handleRejectRequest = async (requestId: string) => {
+  const handleRejectRequest = async (fromUserId: string) => {
     try {
-      await api.rejectFriendRequest(requestId)
+      await api.rejectFriendRequest(fromUserId)
       // Recarregar solicitações
+      window.location.reload() // Temporário - recarregar página
     } catch (error) {
       console.error('Failed to reject friend request:', error)
     }
@@ -80,7 +81,7 @@ export default function HomeScreen() {
                 : 'text-dark-400 hover:text-white hover:bg-dark-800'
             }`}
           >
-            Online
+            Disponivel
           </button>
           <button
             onClick={() => setActiveTab('all')}
@@ -234,25 +235,25 @@ export default function HomeScreen() {
                 <div className="space-y-2">
                   {pendingRequests.map((request) => (
                     <div
-                      key={request.id}
+                      key={request.fromUserId}
                       className="flex items-center gap-3 p-3 rounded-lg bg-dark-800 border border-dark-700"
                     >
                       <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
-                        {request.fromUsername.charAt(0).toUpperCase()}
+                        {request.fromUsername?.charAt(0).toUpperCase() || '?'}
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-white">{request.fromUsername}</p>
+                        <p className="font-medium text-white">{request.fromUsername || 'Unknown'}</p>
                         <p className="text-sm text-dark-400">Solicitação de amizade recebida</p>
                       </div>
                       <button
-                        onClick={() => handleAcceptRequest(request.id)}
+                        onClick={() => handleAcceptRequest(request.fromUserId)}
                         className="p-2 rounded-full bg-green-600 hover:bg-green-700"
                         title="Aceitar"
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleRejectRequest(request.id)}
+                        onClick={() => handleRejectRequest(request.fromUserId)}
                         className="p-2 rounded-full bg-red-600 hover:bg-red-700"
                         title="Rejeitar"
                       >
@@ -300,7 +301,7 @@ export default function HomeScreen() {
         </div>
 
         {/* Sidebar de DMs */}
-        <div className="w-60 bg-dark-800 border-l border-dark-700 p-4">
+        {/* <div className="w-60 bg-dark-800 border-l border-dark-700 p-4">
           <h3 className="text-xs font-semibold text-dark-400 uppercase mb-3">
             Mensagens Diretas
           </h3>
@@ -339,7 +340,7 @@ export default function HomeScreen() {
               ))}
             </div>
           )}
-        </div>
+        </div> */}
       </div>
     </div>
   )

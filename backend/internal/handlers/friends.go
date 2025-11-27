@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/nexus/backend/internal/database"
+	"github.com/nexus/backend/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -26,7 +27,7 @@ func NewFriendHandler(logger *zap.Logger, db *database.CassandraDB) *FriendHandl
 
 // SendFriendRequestRequest representa a requisição de envio de solicitação
 type SendFriendRequestRequest struct {
-	Username string `json:"username"`
+	Username string `json:"username"` // pode ser "dannyah" ou "dannyah#1234"
 }
 
 // FriendRequestResponse representa uma solicitação de amizade
@@ -41,13 +42,16 @@ type FriendRequestResponse struct {
 
 // FriendResponse representa um amigo
 type FriendResponse struct {
-	UserID      string `json:"userId"`
-	Username    string `json:"username"`
-	Nickname    string `json:"nickname,omitempty"`
-	Avatar      string `json:"avatar,omitempty"`
-	Status      string `json:"status"` // online, offline, idle, dnd
-	DMChannelID string `json:"dmChannelId"`
-	AddedAt     int64  `json:"addedAt"`
+	UserID        string `json:"userId"`
+	Username      string `json:"username"`      // username sem discriminador
+	Discriminator string `json:"discriminator"` // discriminador #1234
+	DisplayName   string `json:"displayName"`   // nome de exibição
+	Nickname      string `json:"nickname,omitempty"`
+	Avatar        string `json:"avatar,omitempty"`
+	Bio           string `json:"bio,omitempty"`
+	Status        string `json:"status"` // online, offline, idle, dnd
+	DMChannelID   string `json:"dmChannelId"`
+	AddedAt       int64  `json:"addedAt"`
 }
 
 // SendFriendRequest envia uma solicitação de amizade
@@ -64,14 +68,28 @@ func (fh *FriendHandler) SendFriendRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Buscar usuário destino pelo username
-	targetUser, err := fh.db.GetUserByUsername(req.Username)
+	// Buscar usuário destino pelo username (com ou sem discriminador)
+	// Formato aceito: "dannyah" ou "dannyah#1234"
+	var targetUser map[string]interface{}
+	var err error
+	
+	// Verificar se tem discriminador (#)
+	if len(req.Username) > 0 && req.Username[len(req.Username)-5] == '#' {
+		// Formato: username#1234
+		username := req.Username[:len(req.Username)-5]
+		discriminator := req.Username[len(req.Username)-4:]
+		targetUser, err = fh.db.GetUserByUsernameAndDiscriminator(username, discriminator)
+	} else {
+		// Apenas username - buscar qualquer usuário com esse username
+		targetUser, err = fh.db.GetUserByUsername(req.Username)
+	}
+	
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -109,7 +127,7 @@ func (fh *FriendHandler) SendFriendRequest(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "friend request sent",
+		"message":  "friend request sent",
 		"toUserId": targetUserID,
 	})
 }
@@ -117,7 +135,7 @@ func (fh *FriendHandler) SendFriendRequest(w http.ResponseWriter, r *http.Reques
 // GetFriendRequests retorna solicitações de amizade pendentes
 func (fh *FriendHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request) {
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -134,7 +152,7 @@ func (fh *FriendHandler) GetFriendRequests(w http.ResponseWriter, r *http.Reques
 	requests := make([]FriendRequestResponse, 0)
 	for _, row := range rows {
 		fromUserID := row["from_user_id"].(string)
-		
+
 		// Buscar informações do usuário remetente
 		user, _ := fh.db.GetUserByID(fromUserID)
 		username := "Unknown"
@@ -166,7 +184,7 @@ func (fh *FriendHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -223,7 +241,7 @@ func (fh *FriendHandler) RejectFriendRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -248,7 +266,7 @@ func (fh *FriendHandler) RejectFriendRequest(w http.ResponseWriter, r *http.Requ
 // GetFriends retorna lista de amigos
 func (fh *FriendHandler) GetFriends(w http.ResponseWriter, r *http.Request) {
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -257,47 +275,47 @@ func (fh *FriendHandler) GetFriends(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implementar sistema de amigos completo
 	// Por enquanto retorna lista vazia para não quebrar o frontend
 	friends := make([]FriendResponse, 0)
-	
+
 	// Código comentado até implementar tabelas de amigos
 	/*
-	rows, err := fh.db.GetFriends(claims.UserID)
-	if err != nil {
-		fh.logger.Error("failed to get friends", zap.Error(err))
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	for _, row := range rows {
-		friendID := row["friend_id"].(string)
-		
-		// Buscar informações do amigo
-		user, _ := fh.db.GetUserByID(friendID)
-		username := "Unknown"
-		if user != nil {
-			username = user["username"].(string)
+		rows, err := fh.db.GetFriends(claims.UserID)
+		if err != nil {
+			fh.logger.Error("failed to get friends", zap.Error(err))
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
 
-		// Buscar presença
-		presence, _ := fh.db.GetUserPresence(friendID)
-		status := "offline"
-		if presence != nil {
-			status = presence["status"].(string)
-		}
+		for _, row := range rows {
+			friendID := row["friend_id"].(string)
 
-		friend := FriendResponse{
-			UserID:      friendID,
-			Username:    username,
-			DMChannelID: row["dm_channel_id"].(string),
-			Status:      status,
-			AddedAt:     row["added_at"].(time.Time).UnixMilli(),
-		}
+			// Buscar informações do amigo
+			user, _ := fh.db.GetUserByID(friendID)
+			username := "Unknown"
+			if user != nil {
+				username = user["username"].(string)
+			}
 
-		if nickname, ok := row["nickname"].(string); ok && nickname != "" {
-			friend.Nickname = nickname
-		}
+			// Buscar presença
+			presence, _ := fh.db.GetUserPresence(friendID)
+			status := "offline"
+			if presence != nil {
+				status = presence["status"].(string)
+			}
 
-		friends = append(friends, friend)
-	}
+			friend := FriendResponse{
+				UserID:      friendID,
+				Username:    username,
+				DMChannelID: row["dm_channel_id"].(string),
+				Status:      status,
+				AddedAt:     row["added_at"].(time.Time).UnixMilli(),
+			}
+
+			if nickname, ok := row["nickname"].(string); ok && nickname != "" {
+				friend.Nickname = nickname
+			}
+
+			friends = append(friends, friend)
+		}
 	*/
 
 	w.Header().Set("Content-Type", "application/json")
@@ -313,7 +331,7 @@ func (fh *FriendHandler) RemoveFriend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -338,4 +356,56 @@ func (fh *FriendHandler) RemoveFriend(w http.ResponseWriter, r *http.Request) {
 	)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetDMs retorna as conversas diretas do usuário
+func (fh *FriendHandler) GetDMs(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*models.Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// TODO: Implement GetUserDMs in database
+	response := []interface{}{}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// CreateDM cria uma nova conversa direta
+func (fh *FriendHandler) CreateDM(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*models.Claims)
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		FriendID string `json:"friendId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.FriendID == "" {
+		http.Error(w, "friend ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: Implement CreateDMChannel in database
+	channelID := uuid.Must(uuid.NewV4()).String()
+
+	response := map[string]interface{}{
+		"id":       channelID,
+		"type":     "dm",
+		"userId":   claims.UserID,
+		"friendId": req.FriendID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
 }

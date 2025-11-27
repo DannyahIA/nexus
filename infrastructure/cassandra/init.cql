@@ -60,19 +60,6 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_user_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_user_username ON users(username);
 
--- Materialized views para buscar usuários
-CREATE MATERIALIZED VIEW IF NOT EXISTS users_by_email AS
-  SELECT user_id, email, username, password_hash, avatar_url, created_at
-  FROM users
-  WHERE email IS NOT NULL AND user_id IS NOT NULL
-  PRIMARY KEY (email, user_id);
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS users_by_username AS
-  SELECT user_id, email, username, password_hash, avatar_url, created_at
-  FROM users
-  WHERE username IS NOT NULL AND user_id IS NOT NULL
-  PRIMARY KEY (username, user_id);
-
 -- Channels table
 CREATE TABLE IF NOT EXISTS channels (
   channel_id uuid PRIMARY KEY,

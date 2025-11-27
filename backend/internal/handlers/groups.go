@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/nexus/backend/internal/database"
+	"github.com/nexus/backend/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -59,7 +60,7 @@ func (gh *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Obter usuário do contexto (JWT claims)
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -140,7 +141,7 @@ func (gh *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 // GetGroups retorna grupos do usuário
 func (gh *GroupHandler) GetGroups(w http.ResponseWriter, r *http.Request) {
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -186,7 +187,7 @@ func (gh *GroupHandler) GetGroupChannels(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -225,7 +226,7 @@ func (gh *GroupHandler) JoinGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Obter usuário do contexto
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

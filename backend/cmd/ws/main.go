@@ -1,5 +1,7 @@
 package main
 
+// WebRTC Signaling Support - v2.0
+
 import (
 	"context"
 	"encoding/json"
@@ -19,6 +21,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/nexus/backend/internal/cache"
+	"github.com/nexus/backend/internal/config"
+	"github.com/nexus/backend/internal/middleware"
 )
 
 // WebSocketMessage representa uma mensagem WebSocket
@@ -72,14 +76,8 @@ type WebSocketServer struct {
 	logger        *zap.Logger
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// TODO: Implementar validação de origin em produção
-		return true
-	},
-}
+// upgrader will be initialized in main() with proper CORS configuration
+var upgrader websocket.Upgrader
 
 // NewWebSocketServer cria um novo servidor WebSocket
 func NewWebSocketServer(nc *nats.Conn, logger *zap.Logger) *WebSocketServer {
@@ -153,11 +151,12 @@ func (ws *WebSocketServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := &Claims{}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "your-secret-key-change-this"
+	}
+	
 	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
-		jwtSecret := os.Getenv("JWT_SECRET")
-		if jwtSecret == "" {
-			jwtSecret = "your-secret-key-change-this"
-		}
 		return []byte(jwtSecret), nil
 	})
 
@@ -217,9 +216,10 @@ func (ws *WebSocketServer) readPump(client *WebSocketConn) {
 		client.conn.Close()
 	}()
 
-	client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Aumentar timeout para 5 minutos
+	client.conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 	client.conn.SetPongHandler(func(string) error {
-		client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		client.conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		return nil
 	})
 
@@ -276,6 +276,26 @@ func (ws *WebSocketServer) handleMessage(client *WebSocketConn, msg *WebSocketMe
 				zap.String("userID", client.userID.String()),
 				zap.String("channelID", msg.ChannelID))
 		}
+	case "ping":
+		// Heartbeat - apenas responder com pong
+		ws.logger.Debug("received ping", zap.String("userID", client.userID.String()))
+	
+	// WebRTC Signaling
+	case "voice:join":
+		ws.handleVoiceJoin(client, msg)
+	case "voice:leave":
+		ws.handleVoiceLeave(client, msg)
+	case "voice:offer":
+		ws.handleVoiceOffer(client, msg)
+	case "voice:answer":
+		ws.handleVoiceAnswer(client, msg)
+	case "voice:ice-candidate":
+		ws.handleVoiceIceCandidate(client, msg)
+	case "voice:mute-status":
+		ws.handleVoiceMuteStatus(client, msg)
+	case "voice:video-status":
+		ws.handleVoiceVideoStatus(client, msg)
+	
 	default:
 		ws.logger.Warn("unknown message type", zap.String("type", msg.Type))
 	}
@@ -329,6 +349,259 @@ func (ws *WebSocketServer) broadcastToChannel(channelID string, message []byte) 
 	}
 }
 
+// sendToUser envia mensagem para um usuário específico
+func (ws *WebSocketServer) sendToUser(userID string, message []byte) {
+	targetUUID, err := uuid.FromString(userID)
+	if err != nil {
+		ws.logger.Error("invalid target user ID", zap.String("userID", userID), zap.Error(err))
+		return
+	}
+
+	for client := range ws.clients {
+		if client.userID == targetUUID {
+			select {
+			case client.send <- message:
+			default:
+				ws.logger.Warn("failed to send to user, buffer full", zap.String("userID", userID))
+			}
+			return
+		}
+	}
+	ws.logger.Warn("user not found", zap.String("userID", userID))
+}
+
+// ============================================
+// WebRTC Signaling Handlers
+// ============================================
+
+// handleVoiceJoin processa entrada em canal de voz
+func (ws *WebSocketServer) handleVoiceJoin(client *WebSocketConn, msg *WebSocketMessage) {
+	ws.logger.Info("user joining voice channel",
+		zap.String("userID", client.userID.String()),
+		zap.String("username", client.username),
+		zap.String("channelID", msg.ChannelID))
+
+	// Inscrever automaticamente no canal para receber notificações
+	if msg.ChannelID != "" {
+		client.channels[msg.ChannelID] = true
+	}
+
+	// Primeiro, enviar lista de usuários já conectados para o novo usuário
+	existingUsers := []map[string]interface{}{}
+	for c := range ws.clients {
+		if c.channels[msg.ChannelID] && c.userID != client.userID {
+			existingUsers = append(existingUsers, map[string]interface{}{
+				"userId":   c.userID.String(),
+				"username": c.username,
+			})
+		}
+	}
+
+	if len(existingUsers) > 0 {
+		existingUsersMsg := map[string]interface{}{
+			"type":  "voice:existing-users",
+			"users": existingUsers,
+		}
+		existingUsersBytes, _ := json.Marshal(existingUsersMsg)
+		select {
+		case client.send <- existingUsersBytes:
+			ws.logger.Info("sent existing users list",
+				zap.Int("count", len(existingUsers)),
+				zap.String("to", client.userID.String()))
+		default:
+			ws.logger.Warn("failed to send existing users list")
+		}
+	}
+
+	// Notificar outros usuários no canal que alguém entrou
+	notification := map[string]interface{}{
+		"type":      "voice:user-joined",
+		"userId":    client.userID.String(),
+		"username":  client.username,
+		"channelId": msg.ChannelID,
+	}
+	notificationBytes, _ := json.Marshal(notification)
+	
+	// Broadcast para todos no canal (exceto o próprio usuário)
+	count := 0
+	totalInChannel := 0
+	for c := range ws.clients {
+		if c.channels[msg.ChannelID] {
+			totalInChannel++
+			if c.userID != client.userID {
+				ws.logger.Info("attempting to notify user",
+					zap.String("targetUserID", c.userID.String()),
+					zap.String("targetUsername", c.username))
+				select {
+				case c.send <- notificationBytes:
+					count++
+					ws.logger.Info("successfully notified user",
+						zap.String("targetUserID", c.userID.String()))
+				default:
+					ws.logger.Warn("failed to notify user, buffer full", 
+						zap.String("userID", c.userID.String()))
+				}
+			}
+		}
+	}
+	
+	ws.logger.Info("notified users in voice channel", 
+		zap.Int("notified", count),
+		zap.Int("totalInChannel", totalInChannel),
+		zap.String("channelID", msg.ChannelID))
+}
+
+// handleVoiceLeave processa saída de canal de voz
+func (ws *WebSocketServer) handleVoiceLeave(client *WebSocketConn, msg *WebSocketMessage) {
+	ws.logger.Info("user leaving voice channel",
+		zap.String("userID", client.userID.String()),
+		zap.String("channelID", msg.ChannelID))
+
+	// Notificar outros usuários que alguém saiu
+	notification := map[string]interface{}{
+		"type":      "voice:user-left",
+		"userId":    client.userID.String(),
+		"channelId": msg.ChannelID,
+	}
+	notificationBytes, _ := json.Marshal(notification)
+	ws.broadcastToChannel(msg.ChannelID, notificationBytes)
+}
+
+// handleVoiceOffer processa offer WebRTC
+func (ws *WebSocketServer) handleVoiceOffer(client *WebSocketConn, msg *WebSocketMessage) {
+	// Parse mensagem para obter targetUserId e offer
+	var offerData map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &offerData); err != nil {
+		ws.logger.Error("failed to parse offer data", zap.Error(err))
+		return
+	}
+
+	targetUserID, ok := offerData["targetUserId"].(string)
+	if !ok {
+		ws.logger.Error("missing targetUserId in offer")
+		return
+	}
+
+	ws.logger.Info("forwarding voice offer",
+		zap.String("from", client.userID.String()),
+		zap.String("to", targetUserID))
+
+	// Encaminhar offer para o usuário alvo
+	forwardMsg := map[string]interface{}{
+		"type":   "voice:offer",
+		"userId": client.userID.String(),
+		"offer":  offerData["offer"],
+	}
+	forwardBytes, _ := json.Marshal(forwardMsg)
+	ws.sendToUser(targetUserID, forwardBytes)
+}
+
+// handleVoiceAnswer processa answer WebRTC
+func (ws *WebSocketServer) handleVoiceAnswer(client *WebSocketConn, msg *WebSocketMessage) {
+	// Parse mensagem para obter targetUserId e answer
+	var answerData map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &answerData); err != nil {
+		ws.logger.Error("failed to parse answer data", zap.Error(err))
+		return
+	}
+
+	targetUserID, ok := answerData["targetUserId"].(string)
+	if !ok {
+		ws.logger.Error("missing targetUserId in answer")
+		return
+	}
+
+	ws.logger.Info("forwarding voice answer",
+		zap.String("from", client.userID.String()),
+		zap.String("to", targetUserID))
+
+	// Encaminhar answer para o usuário alvo
+	forwardMsg := map[string]interface{}{
+		"type":   "voice:answer",
+		"userId": client.userID.String(),
+		"answer": answerData["answer"],
+	}
+	forwardBytes, _ := json.Marshal(forwardMsg)
+	ws.sendToUser(targetUserID, forwardBytes)
+}
+
+// handleVoiceIceCandidate processa ICE candidates
+func (ws *WebSocketServer) handleVoiceIceCandidate(client *WebSocketConn, msg *WebSocketMessage) {
+	// Parse mensagem para obter targetUserId e candidate
+	var candidateData map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &candidateData); err != nil {
+		ws.logger.Error("failed to parse ice candidate data", zap.Error(err))
+		return
+	}
+
+	targetUserID, ok := candidateData["targetUserId"].(string)
+	if !ok {
+		ws.logger.Error("missing targetUserId in ice candidate")
+		return
+	}
+
+	ws.logger.Debug("forwarding ice candidate",
+		zap.String("from", client.userID.String()),
+		zap.String("to", targetUserID))
+
+	// Encaminhar ICE candidate para o usuário alvo
+	forwardMsg := map[string]interface{}{
+		"type":      "voice:ice-candidate",
+		"userId":    client.userID.String(),
+		"candidate": candidateData["candidate"],
+	}
+	forwardBytes, _ := json.Marshal(forwardMsg)
+	ws.sendToUser(targetUserID, forwardBytes)
+}
+
+// handleVoiceMuteStatus processa mudanças de status de mute
+func (ws *WebSocketServer) handleVoiceMuteStatus(client *WebSocketConn, msg *WebSocketMessage) {
+	var muteData map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &muteData); err != nil {
+		ws.logger.Error("failed to parse mute data", zap.Error(err))
+		return
+	}
+
+	ws.logger.Info("mute status changed",
+		zap.String("userID", client.userID.String()),
+		zap.Bool("isMuted", muteData["isMuted"].(bool)),
+		zap.String("channelID", msg.ChannelID))
+
+	// Broadcast para todos no canal
+	notification := map[string]interface{}{
+		"type":      "voice:mute-status",
+		"userId":    client.userID.String(),
+		"isMuted":   muteData["isMuted"],
+		"channelId": msg.ChannelID,
+	}
+	notificationBytes, _ := json.Marshal(notification)
+	ws.broadcastToChannel(msg.ChannelID, notificationBytes)
+}
+
+// handleVoiceVideoStatus processa mudanças de status de vídeo
+func (ws *WebSocketServer) handleVoiceVideoStatus(client *WebSocketConn, msg *WebSocketMessage) {
+	var videoData map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &videoData); err != nil {
+		ws.logger.Error("failed to parse video data", zap.Error(err))
+		return
+	}
+
+	ws.logger.Info("video status changed",
+		zap.String("userID", client.userID.String()),
+		zap.Bool("isVideoEnabled", videoData["isVideoEnabled"].(bool)),
+		zap.String("channelID", msg.ChannelID))
+
+	// Broadcast para todos no canal
+	notification := map[string]interface{}{
+		"type":           "voice:video-status",
+		"userId":         client.userID.String(),
+		"isVideoEnabled": videoData["isVideoEnabled"],
+		"channelId":      msg.ChannelID,
+	}
+	notificationBytes, _ := json.Marshal(notification)
+	ws.broadcastToChannel(msg.ChannelID, notificationBytes)
+}
+
 // writePump escreve mensagens para o cliente
 func (ws *WebSocketServer) writePump(client *WebSocketConn) {
 	ticker := time.NewTicker(54 * time.Second)
@@ -372,19 +645,56 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// Conectar ao NATS
-	natsURL := os.Getenv("NATS_URL")
-	if natsURL == "" {
-		natsURL = "nats://127.0.0.1:4222"
+	// Validate and load environment configuration
+	envConfig, err := config.InitializeEnvironment(logger)
+	if err != nil {
+		logger.Fatal("Environment configuration validation failed", zap.Error(err))
 	}
 
-	nc, err := nats.Connect(natsURL)
+	// Setup CORS configuration
+	corsConfig := middleware.NewCORSConfig(logger)
+
+	// Initialize WebSocket upgrader with CORS-aware CheckOrigin
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			
+			// Log the origin for debugging
+			logger.Info("WebSocket connection attempt",
+				zap.String("origin", origin),
+				zap.String("remoteAddr", r.RemoteAddr))
+
+			// Check if origin is allowed using CORS config
+			for _, allowed := range corsConfig.AllowedOrigins {
+				if allowed == "*" {
+					logger.Debug("WebSocket connection allowed (wildcard)")
+					return true
+				}
+				if allowed == origin {
+					logger.Debug("WebSocket connection allowed",
+						zap.String("origin", origin))
+					return true
+				}
+			}
+
+			// Origin not allowed
+			logger.Warn("WebSocket connection rejected - origin not allowed",
+				zap.String("origin", origin),
+				zap.Strings("allowedOrigins", corsConfig.AllowedOrigins))
+			return false
+		},
+	}
+
+	// Conectar ao NATS
+	nc, err := nats.Connect(envConfig.NatsURL)
 	if err != nil {
 		logger.Fatal("failed to connect to NATS", zap.Error(err))
 	}
 	defer nc.Close()
 
-	logger.Info("Connected to NATS", zap.String("url", natsURL))
+	logger.Info("Connected to NATS", zap.String("url", envConfig.NatsURL))
 
 	// Criar servidor WebSocket
 	wsServer := NewWebSocketServer(nc, logger)
@@ -396,19 +706,14 @@ func main() {
 	go wsServer.Run()
 
 	// Iniciar servidor HTTP
-	port := os.Getenv("WS_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
 	server := &http.Server{
-		Addr:         ":" + port,
+		Addr:         ":" + envConfig.WSPort,
 		Handler:      http.DefaultServeMux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
 
-	logger.Info("WebSocket server starting", zap.String("port", port))
+	logger.Info("WebSocket server starting", zap.String("port", envConfig.WSPort))
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -432,3 +737,4 @@ func main() {
 
 	logger.Info("WebSocket server stopped")
 }
+// Force rebuild Wed Nov 19 08:40:37 AM -03 2025

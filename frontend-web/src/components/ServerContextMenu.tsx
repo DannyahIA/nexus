@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Settings, Trash2, Plus, Hash } from 'lucide-react'
 import { api } from '../services/api'
+import ServerInviteModal from './ServerInviteModal'
 
 interface ServerContextMenuProps {
   server: {
@@ -8,6 +9,7 @@ interface ServerContextMenuProps {
     name: string
     description?: string
     iconUrl?: string
+    inviteCode?: string
   }
   position: { x: number; y: number }
   onClose: () => void
@@ -21,6 +23,7 @@ export default function ServerContextMenu({
   onUpdate,
 }: ServerContextMenuProps) {
   const [showRename, setShowRename] = useState(false)
+  const [showInviteModal, setShowInviteModal] = useState(false)
   const [newName, setNewName] = useState(server.name)
   const [newDescription, setNewDescription] = useState(server.description || '')
   const [loading, setLoading] = useState(false)
@@ -142,12 +145,23 @@ export default function ServerContextMenu({
       </button>
       
       <button
-        onClick={() => {/* TODO: Implementar convite */}}
+        onClick={() => {
+          setShowInviteModal(true)
+          onClose()
+        }}
         className="w-full px-4 py-2 text-left hover:bg-dark-800 flex items-center gap-3 text-sm"
       >
         <Plus className="w-4 h-4" />
         Convidar Pessoas
       </button>
+      
+      {/* Modal de Convite */}
+      <ServerInviteModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        server={server}
+        mode="invite"
+      />
       
       <button
         onClick={() => {/* TODO: Implementar criação de canal */}}

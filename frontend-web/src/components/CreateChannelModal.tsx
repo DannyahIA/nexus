@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Hash, Volume2, Video } from 'lucide-react'
+import { X, Hash, Volume2 } from 'lucide-react'
 
 interface CreateChannelModalProps {
   isOpen: boolean
@@ -34,7 +34,6 @@ export default function CreateChannelModal({
   const channelTypes = [
     { id: 'text', label: 'Text', icon: Hash, description: 'Send messages, images, and files' },
     { id: 'voice', label: 'Voice', icon: Volume2, description: 'Voice chat with others' },
-    { id: 'video', label: 'Video', icon: Video, description: 'Video conference' },
   ]
 
   return (
@@ -58,7 +57,7 @@ export default function CreateChannelModal({
             <label className="block text-sm font-medium text-dark-300 mb-3">
               Channel Type
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {channelTypes.map((channelType) => {
                 const Icon = channelType.icon
                 return (
