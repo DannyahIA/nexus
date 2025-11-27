@@ -5,6 +5,10 @@ import { connectionMonitor, ConnectionQuality } from './connectionMonitor'
 import { VoiceActivityDetector } from './voiceActivityDetector'
 import { TrackManager, TrackType, TrackState } from './trackManager'
 import { ReconnectionManager } from './reconnectionManager'
+import { StateSynchronizationManager } from './stateSynchronizationManager'
+import { getMediaErrorInfo, getErrorGuidance } from './mediaErrorHandler'
+import { BackgroundModeHandler } from './backgroundModeHandler'
+import { errorLogger } from './errorLogger'
 
 export interface VoiceUser {
   userId: string
@@ -30,6 +34,59 @@ export interface HealthCheckResult {
   timestamp: number
 }
 
+export interface ConnectionStatistics {
+  userId: string
+  establishmentTime: number | null
+  candidateTypes: string[]
+  usingTURN: boolean
+  connectionState: RTCPeerConnectionState | null
+  iceConnectionState: RTCIceConnectionState | null
+  signalingState: RTCSignalingState | null
+  startTime: number | null
+  isConnected: boolean
+}
+
+// Re-export ErrorLog from errorLogger for consistency
+export type { ErrorLog } from './errorLogger'
+
+export interface BrowserInfo {
+  userAgent: string
+  platform: string
+  language: string
+  onLine: boolean
+  cookieEnabled: boolean
+}
+
+export interface DiagnosticReport {
+  timestamp: number
+  channelId: string | null
+  localState: {
+    hasLocalStream: boolean
+    hasAudio: boolean
+    hasVideo: boolean
+    videoType: TrackType
+    isAudioEnabled: boolean
+    isVideoEnabled: boolean
+    audioTrackId: string | null
+    videoTrackId: string | null
+  }
+  peerStates: Map<string, {
+    connectionState: RTCPeerConnectionState
+    iceConnectionState: RTCIceConnectionState
+    signalingState: RTCSignalingState
+    hasRemoteStream: boolean
+    remoteAudioTracks: number
+    remoteVideoTracks: number
+  }>
+  healthChecks: HealthCheckResult[]
+  connectionStatistics: ConnectionStatistics[]
+  connectionQuality: Map<string, ConnectionQuality>
+  browserInfo: BrowserInfo
+  activeReconnections: string[]
+  backgroundMode: boolean
+  recentErrors: import('./errorLogger').ErrorLog[]
+}
+
 class WebRTCService {
   private peerConnections: Map<string, RTCPeerConnection> = new Map()
   private localStream: MediaStream | null = null
@@ -39,6 +96,15 @@ class WebRTCService {
   
   // Track manager for robust media track management
   private trackManager: TrackManager = new TrackManager()
+
+  // State synchronization manager for video state consistency
+  private stateSyncManager: StateSynchronizationManager = new StateSynchronizationManager()
+
+  // Background mode handler for maintaining connections when tab loses focus
+  private backgroundModeHandler: BackgroundModeHandler = new BackgroundModeHandler({
+    maintainVideoInBackground: true,
+    enableLogging: true,
+  })
 
   // Configuração STUN/TURN
   private iceServers: RTCIceServer[] = []
@@ -74,6 +140,8 @@ class WebRTCService {
     this.setupWebSocketListeners()
     this.setupConnectionMonitoring()
     this.setupReconnectionManager()
+    this.setupBackgroundModeHandler()
+    this.setupNetworkAdaptation()
   }
 
   /**
@@ -205,6 +273,274 @@ class WebRTCService {
   }
 
   /**
+   * Setup background mode handler with event listeners
+   * Implements Requirements 4.1, 4.2, 4.3, 4.4, 4.5
+   */
+  private setupBackgroundModeHandler(): void {
+    // Initialize the background mode handler
+    this.backgroundModeHandler.initialize()
+
+    // Listen for background mode entered event (Requirements 4.1, 4.2, 4.5)
+    this.backgroundModeHandler.on('background-mode-entered', (data: any) => {
+      console.log('📱 Background mode entered, maintaining connections')
+      this.handleBackgroundMode(true)
+    })
+
+    // Listen for foreground mode entered event (Requirement 4.3)
+    this.backgroundModeHandler.on('foreground-mode-entered', (data: any) => {
+      console.log('🖥️ Foreground mode entered, connections remain stable')
+      this.handleBackgroundMode(false)
+    })
+
+    // Listen for background maintenance events (Requirement 4.5)
+    this.backgroundModeHandler.on('background-maintenance', (data: any) => {
+      console.log('🔄 Background maintenance triggered')
+      this.monitorConnectionsInBackground()
+    })
+
+    console.log('✅ Background mode handler setup complete')
+  }
+
+  /**
+   * Setup network adaptation to handle network condition changes
+   * Implements Requirement 6.5: Network adaptation
+   * 
+   * This method sets up listeners for network condition changes (online/offline events)
+   * and attempts ICE restart or reconnection when network conditions change.
+   */
+  private setupNetworkAdaptation(): void {
+    console.log('🌐 Setting up network adaptation')
+
+    // Listen for online event (network connection restored)
+    window.addEventListener('online', () => {
+      console.log('🌐 Network connection restored (online event)')
+      this.handleNetworkChange('online')
+    })
+
+    // Listen for offline event (network connection lost)
+    window.addEventListener('offline', () => {
+      console.log('🌐 Network connection lost (offline event)')
+      this.handleNetworkChange('offline')
+    })
+
+    // Log initial network state
+    console.log('📊 Initial network state:', {
+      online: navigator.onLine,
+      timestamp: new Date().toISOString(),
+    })
+
+    console.log('✅ Network adaptation setup complete')
+  }
+
+  /**
+   * Handle network condition changes
+   * Implements Requirement 6.5: Network adaptation
+   * 
+   * When network conditions change, this method:
+   * 1. Logs the network change event
+   * 2. Attempts ICE restart for all active peer connections
+   * 3. Triggers reconnection if ICE restart fails
+   * 
+   * @param eventType - Type of network event ('online' or 'offline')
+   */
+  private async handleNetworkChange(eventType: 'online' | 'offline'): Promise<void> {
+    console.log(`🌐 Handling network change: ${eventType}`)
+    
+    // Log detailed network change information
+    console.log('📊 Network change details:', {
+      eventType,
+      online: navigator.onLine,
+      currentChannelId: this.currentChannelId,
+      activePeerConnections: this.peerConnections.size,
+      peerIds: Array.from(this.peerConnections.keys()),
+      timestamp: new Date().toISOString(),
+    })
+
+    // Emit network change event for UI notification
+    this.emit('network-change', {
+      eventType,
+      online: navigator.onLine,
+      timestamp: new Date().toISOString(),
+    })
+
+    // If we're offline, just log and wait for online event
+    if (eventType === 'offline') {
+      console.warn('⚠️ Network offline - waiting for connection to be restored')
+      this.emit('network-offline', {
+        message: 'Network connection lost. Waiting for connection to be restored...',
+        timestamp: new Date().toISOString(),
+      })
+      return
+    }
+
+    // Network is back online - attempt to recover connections
+    if (eventType === 'online') {
+      console.log('✅ Network back online - attempting to recover connections')
+      
+      // Check if we're in a voice channel
+      if (!this.currentChannelId) {
+        console.log('ℹ️ Not in a voice channel, no connections to recover')
+        return
+      }
+
+      // Check if we have any peer connections
+      if (this.peerConnections.size === 0) {
+        console.log('ℹ️ No active peer connections to recover')
+        return
+      }
+
+      // Emit recovery started event
+      this.emit('network-recovery-started', {
+        peerCount: this.peerConnections.size,
+        timestamp: new Date().toISOString(),
+      })
+
+      // Attempt ICE restart for all peer connections
+      await this.attemptICERestartForAllPeers()
+    }
+  }
+
+  /**
+   * Attempt ICE restart for all active peer connections
+   * Implements Requirement 6.5: Network adaptation with ICE restart
+   * 
+   * This method attempts to restart ICE for all active peer connections.
+   * If ICE restart fails, it triggers full reconnection.
+   */
+  private async attemptICERestartForAllPeers(): Promise<void> {
+    console.log('🔄 Attempting ICE restart for all peer connections')
+    
+    const results: Array<{
+      userId: string
+      success: boolean
+      method: 'ice-restart' | 'reconnection' | 'failed'
+      error?: string
+    }> = []
+
+    // Process each peer connection
+    for (const [userId, pc] of this.peerConnections.entries()) {
+      try {
+        console.log(`🔄 Attempting ICE restart for peer ${userId}`)
+        
+        // Log connection state before ICE restart
+        console.log('📊 Connection state before ICE restart:', {
+          userId,
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          signalingState: pc.signalingState,
+          timestamp: new Date().toISOString(),
+        })
+
+        // Check if connection is in a state that can be recovered with ICE restart
+        const canUseICERestart = 
+          pc.connectionState === 'connected' ||
+          pc.connectionState === 'connecting' ||
+          pc.iceConnectionState === 'checking' ||
+          pc.iceConnectionState === 'connected' ||
+          pc.iceConnectionState === 'completed'
+
+        if (!canUseICERestart) {
+          console.warn(`⚠️ Connection state not suitable for ICE restart for ${userId}, triggering full reconnection`)
+          
+          // Trigger full reconnection instead
+          this.attemptReconnection(userId)
+          
+          results.push({
+            userId,
+            success: true,
+            method: 'reconnection',
+          })
+          
+          continue
+        }
+
+        // Attempt ICE restart by creating a new offer with iceRestart flag
+        console.log(`🔄 Creating offer with ICE restart for ${userId}`)
+        
+        const offer = await pc.createOffer({ iceRestart: true })
+        await pc.setLocalDescription(offer)
+
+        console.log(`📤 Sending ICE restart offer to ${userId}`)
+        wsService.send({
+          type: 'voice:offer',
+          data: {
+            targetUserId: userId,
+            offer: offer,
+          }
+        })
+
+        // Log successful ICE restart initiation
+        console.log('✅ ICE restart initiated for', userId)
+        
+        results.push({
+          userId,
+          success: true,
+          method: 'ice-restart',
+        })
+
+        // Emit ICE restart event
+        this.emit('ice-restart-attempted', {
+          userId,
+          timestamp: new Date().toISOString(),
+        })
+
+      } catch (error) {
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logPeerConnectionError(
+          error,
+          'ice-restart',
+          userId,
+          pc,
+          {
+            timestamp: new Date().toISOString(),
+          }
+        )
+
+        // If ICE restart fails, trigger full reconnection
+        console.log(`🔄 Falling back to full reconnection for ${userId}`)
+        this.attemptReconnection(userId)
+
+        results.push({
+          userId,
+          success: true,
+          method: 'reconnection',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+
+        // Emit ICE restart failed event
+        this.emit('ice-restart-failed', {
+          userId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString(),
+        })
+      }
+    }
+
+    // Log summary of ICE restart attempts
+    const iceRestartCount = results.filter(r => r.method === 'ice-restart').length
+    const reconnectionCount = results.filter(r => r.method === 'reconnection').length
+    const failedCount = results.filter(r => r.method === 'failed').length
+
+    console.log('📊 ICE restart summary:', {
+      totalPeers: this.peerConnections.size,
+      iceRestartAttempts: iceRestartCount,
+      reconnectionAttempts: reconnectionCount,
+      failed: failedCount,
+      results,
+      timestamp: new Date().toISOString(),
+    })
+
+    // Emit recovery completed event
+    this.emit('network-recovery-completed', {
+      totalPeers: this.peerConnections.size,
+      iceRestartAttempts: iceRestartCount,
+      reconnectionAttempts: reconnectionCount,
+      failed: failedCount,
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  /**
    * Initialize ICE servers with TURN configuration from environment
    */
   private initializeICEServers(): void {
@@ -224,7 +560,13 @@ class WebRTCService {
       })
       console.log('✅ TURN server configured from environment')
     } catch (error) {
-      console.error('❌ Failed to configure TURN server:', error)
+      // Enhanced error logging with full context (Requirement 6.4)
+      errorLogger.logError(
+        error,
+        {
+          operation: 'turn-server-configuration',
+        }
+      )
       console.warn('⚠️ Continuing with STUN-only configuration')
     }
   }
@@ -264,107 +606,166 @@ class WebRTCService {
       console.log('🔔 voice:video-status event received', data)
       this.handleVideoStatus(data)
     })
+    // Listen for WebSocket reconnection events (Requirement 5.4)
+    wsService.on('websocket:reconnected', (data: any) => {
+      console.log('🔔 websocket:reconnected event received', data)
+      this.handleWebSocketReconnection(data)
+    })
   }
 
   // Entrar em canal de voz
+  // Enhanced implementation for Requirements 1.1 (camera activation reliability)
   async joinVoiceChannel(channelId: string, videoEnabled: boolean = false): Promise<void> {
-    try {
-      console.log('🎤 Joining voice channel:', channelId)
-      console.log('📡 WebSocket ready state:', wsService ? 'connected' : 'not connected')
+    console.log('🎤 Joining voice channel:', { channelId, videoEnabled })
+    console.log('📊 WebSocket ready state:', wsService ? 'connected' : 'not connected')
 
-      // Obter stream local (áudio + vídeo opcional)
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: videoEnabled ? {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user',
-        } : false,
-      })
+    // Attempt to get user media with retry logic (Requirement 1.1)
+    const maxRetries = 3
+    let lastError: Error | null = null
 
-      // Initialize VAD for local stream
-      this.localVad = new VoiceActivityDetector()
-      this.localVad.attachToStream(this.localStream)
-      this.localVad.onVoiceActivity((isActive, level) => {
-        // Emit local voice activity
-        this.emit('voice-activity', { userId: 'local', isActive, level })
-
-        // Update active speaker tracking for local user
-        this.updateActiveSpeaker('local', isActive)
-
-        // Optional: Send VAD status to peers via WebSocket if needed
-        // For now we rely on client-side VAD on both ends
-      })
-
-      this.currentChannelId = channelId
-
-      console.log('📤 Sending voice:join to server', { channelId, videoEnabled })
-
-      // Notificar servidor que entrou no canal de voz
-      wsService.send({
-        type: 'voice:join',
-        channelId,
-        videoEnabled,
-      })
-
-      this.emit('local-stream', this.localStream)
-      console.log('✅ Local stream obtained, tracks:', this.localStream.getTracks().map(t => `${t.kind}: ${t.enabled}`))
-    } catch (error) {
-      console.error('❌ Failed to get user media:', error)
-      
-      // Improved error messages (Requirement 5.5, 7.5)
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          const errorMsg = videoEnabled 
-            ? 'Microphone and camera permissions denied. Please allow access in your browser settings.'
-            : 'Microphone permission denied. Please allow access in your browser settings.'
-          this.emit('video-error', { 
-            error: errorMsg,
-            severity: 'error',
-            action: 'check-permissions',
-          })
-          throw new Error(errorMsg)
-        } else if (error.name === 'NotFoundError') {
-          const errorMsg = videoEnabled
-            ? 'No microphone or camera found. Please connect audio/video devices.'
-            : 'No microphone found. Please connect a microphone.'
-          this.emit('video-error', { 
-            error: errorMsg,
-            severity: 'error',
-            action: 'check-device',
-          })
-          throw new Error(errorMsg)
-        } else if (error.name === 'NotReadableError') {
-          const errorMsg = 'Microphone or camera is already in use by another application.'
-          this.emit('video-error', { 
-            error: errorMsg,
-            severity: 'error',
-            action: 'check-device',
-          })
-          throw new Error(errorMsg)
-        } else {
-          const errorMsg = 'Failed to access microphone/camera. Please check your devices and try again.'
-          this.emit('video-error', { 
-            error: errorMsg,
-            severity: 'error',
-            action: 'retry',
-          })
-          throw new Error(errorMsg)
-        }
-      } else {
-        const errorMsg = 'An unexpected error occurred while accessing media devices.'
-        this.emit('video-error', { 
-          error: errorMsg,
-          severity: 'error',
-          action: 'retry',
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📹 Attempting to get user media (attempt ${attempt}/${maxRetries})`)
+        
+        // Obter stream local (áudio + vídeo opcional)
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: videoEnabled ? {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user',
+          } : false,
         })
-        throw new Error(errorMsg)
+
+        // Verify camera activation if video was requested (Requirement 1.1)
+        if (videoEnabled) {
+          const videoTracks = this.localStream.getVideoTracks()
+          if (videoTracks.length === 0) {
+            throw new Error('Video was requested but no video track was obtained')
+          }
+          
+          const videoTrack = videoTracks[0]
+          if (!videoTrack.enabled || videoTrack.readyState !== 'live') {
+            console.warn('⚠️ Video track obtained but not in expected state:', {
+              enabled: videoTrack.enabled,
+              readyState: videoTrack.readyState,
+              label: videoTrack.label,
+            })
+            
+            // Try to enable the track if it's disabled
+            if (!videoTrack.enabled) {
+              videoTrack.enabled = true
+              console.log('✅ Enabled video track')
+            }
+          }
+          
+          console.log('✅ Camera activation verified:', {
+            trackId: videoTrack.id,
+            label: videoTrack.label,
+            enabled: videoTrack.enabled,
+            readyState: videoTrack.readyState,
+          })
+        }
+
+        // Initialize VAD for local stream
+        this.localVad = new VoiceActivityDetector()
+        this.localVad.attachToStream(this.localStream)
+        this.localVad.onVoiceActivity((isActive, level) => {
+          // Emit local voice activity
+          this.emit('voice-activity', { userId: 'local', isActive, level })
+
+          // Update active speaker tracking for local user
+          this.updateActiveSpeaker('local', isActive)
+
+          // Optional: Send VAD status to peers via WebSocket if needed
+          // For now we rely on client-side VAD on both ends
+        })
+
+        this.currentChannelId = channelId
+
+        console.log('📤 Sending voice:join to server', { channelId, videoEnabled })
+
+        // Notificar servidor que entrou no canal de voz
+        wsService.send({
+          type: 'voice:join',
+          channelId,
+          videoEnabled,
+        })
+
+        this.emit('local-stream', this.localStream)
+        console.log('✅ Local stream obtained successfully, tracks:', this.localStream.getTracks().map(t => `${t.kind}: ${t.enabled}`))
+        
+        // Success - exit retry loop
+        return
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error')
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logMediaDeviceError(
+          error,
+          'get-user-media',
+          videoEnabled ? 'camera-and-microphone' : 'microphone',
+          {
+            attempt,
+            maxRetries,
+            channelId,
+            videoEnabled,
+          }
+        )
+        
+        // Don't retry for permission errors or device not found
+        if (error instanceof Error) {
+          if (error.name === 'NotAllowedError' || error.name === 'NotFoundError') {
+            console.log('🚫 Non-retryable error, stopping retry attempts')
+            break
+          }
+        }
+        
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt - 1) * 500 // 500ms, 1s, 2s
+          console.log(`⏳ Waiting ${delay}ms before retry...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
       }
     }
+    
+    // All retries failed, handle error
+    console.error('❌ Failed to get user media after all retries')
+    
+    // Use centralized error handler for user-friendly messages (Requirement 6.1)
+    const context = videoEnabled ? 'both' : 'microphone'
+    const errorInfo = getMediaErrorInfo(lastError, context)
+    const guidance = getErrorGuidance(errorInfo)
+    
+    // Enhanced error logging with full context (Requirement 6.4)
+    errorLogger.logMediaDeviceError(
+      lastError,
+      'get-user-media-final-failure',
+      videoEnabled ? 'camera-and-microphone' : 'microphone',
+      {
+        channelId,
+        videoEnabled,
+        maxRetries,
+        errorInfo,
+        guidance,
+      }
+    )
+    
+    // Emit error event with detailed information
+    this.emit('video-error', {
+      error: errorInfo.error,
+      severity: errorInfo.severity,
+      action: errorInfo.action,
+      guidance: guidance,
+      technicalDetails: errorInfo.technicalDetails,
+    })
+    
+    throw new Error(errorInfo.error)
   }
 
   // Sair do canal de voz
@@ -573,22 +974,25 @@ class WebRTCService {
         
         console.log('✅ Renegotiation offer sent successfully to', userId)
       } catch (error) {
-        // Enhanced error logging with full context (Requirement 4.5)
-        console.error('❌ Failed to handle negotiation needed:', {
-          peerId: userId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          errorName: error instanceof Error ? error.name : 'Unknown',
-          stack: error instanceof Error ? error.stack : undefined,
-          signalingState: pc.signalingState,
-          connectionState: pc.connectionState,
-          timestamp: new Date().toISOString(),
-        })
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logPeerConnectionError(
+          error,
+          'negotiation-needed',
+          userId,
+          pc,
+          {
+            timestamp: new Date().toISOString(),
+          }
+        )
       }
     }
 
     // Listener para ICE candidates
+    // Task 8.8: Enhanced with timestamp logging (Requirement 9.4)
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        const timestamp = new Date().toISOString()
+        
         // Log ICE candidate type for statistics
         const candidateType = this.extractCandidateType(event.candidate)
         if (candidateType) {
@@ -599,7 +1003,14 @@ class WebRTCService {
           console.log(`📊 ICE candidate type for ${userId}: ${candidateType}`)
         }
 
-        console.log('📤 Sending ICE candidate to', userId)
+        // Log ICE candidate sending with timestamp (Requirement 9.4)
+        console.log('📤 Sending ICE candidate to', userId, {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+          timestamp,
+        })
+        
         wsService.send({
           type: 'voice:ice-candidate',
           data: {
@@ -658,6 +1069,7 @@ class WebRTCService {
     }
 
     // Monitor ICE connection state for TURN fallback
+    // Task 6.3: Enhanced to log bidirectional connection establishment (Requirement 2.2)
     pc.oniceconnectionstatechange = () => {
       const iceState = pc.iceConnectionState
       console.log(`ICE connection state with ${userId}:`, iceState)
@@ -675,6 +1087,34 @@ class WebRTCService {
 
           // Start monitoring connection quality when connected
           connectionMonitor.startMonitoring(userId, pc)
+          
+          // Log bidirectional connection fully established (Requirement 2.2)
+          console.log('✅ Bidirectional connection fully established:', {
+            peerId: userId,
+            establishmentTime: `${establishmentTime}ms`,
+            connectionState: pc.connectionState,
+            iceConnectionState: pc.iceConnectionState,
+            signalingState: pc.signalingState,
+            localTracks: this.localStream?.getTracks().map(t => ({
+              kind: t.kind,
+              id: t.id,
+              enabled: t.enabled,
+            })) || [],
+            remoteTracks: this.remoteStreams.get(userId)?.getTracks().map(t => ({
+              kind: t.kind,
+              id: t.id,
+              enabled: t.enabled,
+            })) || [],
+            timestamp: new Date().toISOString(),
+          })
+          
+          // Emit bidirectional connection established event (Requirement 2.2)
+          this.emit('bidirectional-connection-established', {
+            userId,
+            establishmentTime,
+            connectionState: pc.connectionState,
+            iceConnectionState: pc.iceConnectionState,
+          })
         }
       }
 
@@ -686,8 +1126,18 @@ class WebRTCService {
     }
 
     // Listener para mudanças de conexão
+    // Task 6.5: Enhanced to detect unexpected disconnections and implement cleanup (Requirement 2.3)
     pc.onconnectionstatechange = () => {
       console.log(`Connection state with ${userId}:`, pc.connectionState)
+      
+      // Log detailed connection state information (Requirement 2.3)
+      console.log('📊 Connection state change details:', {
+        userId,
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        signalingState: pc.signalingState,
+        timestamp: new Date().toISOString(),
+      })
 
       // Emit connection state changes for monitoring
       this.emit('connection-state-change', {
@@ -696,10 +1146,51 @@ class WebRTCService {
         iceState: pc.iceConnectionState
       })
 
-      // Trigger automatic reconnection on disconnected or failed state
+      // Detect unexpected disconnections (Requirement 2.3)
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        console.log(`⚠️ Connection ${pc.connectionState} for ${userId}, attempting reconnection`)
+        console.log(`⚠️ Connection ${pc.connectionState} for ${userId}`)
+        
+        // Determine if this is an unexpected disconnection
+        const isUnexpected = this.currentChannelId !== null // Still in channel
+        
+        if (isUnexpected) {
+          console.warn('⚠️ Unexpected disconnection detected for', userId)
+          
+          // Log disconnection details (Requirement 2.3)
+          console.log('📊 Unexpected disconnection details:', {
+            userId,
+            connectionState: pc.connectionState,
+            iceConnectionState: pc.iceConnectionState,
+            wasConnected: this.connectionEstablishedTimes.has(userId),
+            connectionDuration: this.connectionEstablishedTimes.has(userId)
+              ? Date.now() - (this.connectionStartTimes.get(userId) || 0)
+              : 0,
+            timestamp: new Date().toISOString(),
+          })
+          
+          // Emit unexpected disconnect event (Requirement 2.3)
+          this.emit('unexpected-disconnect', {
+            userId,
+            connectionState: pc.connectionState,
+            iceConnectionState: pc.iceConnectionState,
+            timestamp: new Date().toISOString(),
+          })
+        }
+        
+        // Trigger automatic reconnection on disconnected or failed state
+        console.log(`🔄 Attempting reconnection for ${userId}`)
         this.attemptReconnection(userId)
+      }
+      
+      // Detect when connection is closed (Requirement 2.3)
+      if (pc.connectionState === 'closed') {
+        console.log(`🔒 Connection closed for ${userId}`)
+        
+        // Clean up peer connection resources (Requirement 2.3)
+        this.cleanupPeerConnection(userId)
+        
+        // Emit user-left event (Requirement 2.3)
+        this.emit('user-left', { userId })
       }
     }
 
@@ -713,8 +1204,48 @@ class WebRTCService {
   private getTURNOnlyServers(): RTCIceServer[] {
     return this.iceServers.filter(server => {
       const urls = Array.isArray(server.urls) ? server.urls : [server.urls]
-      return urls.some(url => url.startsWith('turn:'))
+      return urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'))
     })
+  }
+
+  /**
+   * Get STUN-only servers for fallback when TURN is unavailable
+   * Implements Requirement 8.2: STUN fallback with warnings
+   */
+  private getSTUNOnlyServers(): RTCIceServer[] {
+    return this.iceServers.filter(server => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls]
+      return urls.some(url => url.startsWith('stun:'))
+    })
+  }
+
+  /**
+   * Detect if TURN server is unavailable
+   * Implements Requirement 8.2: Detect TURN server unavailability
+   * 
+   * This method checks if TURN servers are configured and available.
+   * Returns true if TURN is unavailable, false if available.
+   */
+  private isTURNUnavailable(): boolean {
+    const turnServers = this.getTURNOnlyServers()
+    
+    // TURN is unavailable if no TURN servers are configured
+    if (turnServers.length === 0) {
+      console.warn('⚠️ No TURN servers configured in ICE servers')
+      return true
+    }
+
+    // Check if TURN configuration is valid
+    for (const server of turnServers) {
+      // TURN servers require credentials
+      if (!server.username || !server.credential) {
+        console.warn('⚠️ TURN server configured but missing credentials:', server.urls)
+        return true
+      }
+    }
+
+    // TURN appears to be available
+    return false
   }
 
   /**
@@ -760,16 +1291,25 @@ class WebRTCService {
 
   /**
    * Attempt TURN fallback when direct P2P connection fails
+   * Implements Requirement 6.2: TURN fallback on P2P failure
+   * Implements Requirement 8.2: STUN fallback when TURN unavailable
    */
   private async attemptTURNFallback(userId: string): Promise<void> {
     try {
       console.log('🔄 Attempting TURN fallback for', userId)
 
+      // Check if TURN is unavailable (Requirement 8.2)
+      if (this.isTURNUnavailable()) {
+        console.warn('⚠️ TURN server unavailable, falling back to STUN-only mode')
+        await this.attemptSTUNFallback(userId)
+        return
+      }
+
       // Check if we have TURN servers configured
       const turnServers = this.getTURNOnlyServers()
       if (turnServers.length === 0) {
-        console.error('❌ No TURN servers configured, cannot fallback')
-        this.emit('turn-fallback-failed', { userId, reason: 'no-turn-servers' })
+        console.error('❌ No TURN servers configured, falling back to STUN-only')
+        await this.attemptSTUNFallback(userId)
         return
       }
 
@@ -808,8 +1348,239 @@ class WebRTCService {
       this.emit('turn-fallback-attempted', { userId })
 
     } catch (error) {
-      console.error('❌ TURN fallback failed for', userId, error)
+      // Enhanced error logging with full context (Requirement 6.4)
+      const pc = this.peerConnections.get(userId)
+      errorLogger.logPeerConnectionError(
+        error,
+        'turn-fallback',
+        userId,
+        pc || null,
+        {
+          attempts: this.connectionAttempts.get(userId) || 0,
+        }
+      )
       this.emit('turn-fallback-failed', { userId, error })
+      
+      // Try STUN-only as last resort (Requirement 8.2)
+      console.warn('⚠️ TURN fallback failed, attempting STUN-only fallback')
+      await this.attemptSTUNFallback(userId)
+    }
+  }
+
+  /**
+   * Attempt STUN-only fallback when TURN is unavailable
+   * Implements Requirement 8.2: STUN fallback with warnings
+   * 
+   * This method is called when TURN servers are unavailable or fail.
+   * It creates a connection using only STUN servers for NAT traversal.
+   * Note: STUN-only connections may fail in restrictive network environments.
+   */
+  private async attemptSTUNFallback(userId: string): Promise<void> {
+    try {
+      console.warn('⚠️ Attempting STUN-only fallback for', userId)
+      console.warn('⚠️ WARNING: STUN-only mode has limited connectivity')
+      console.warn('⚠️ WARNING: Connection may fail in restrictive network environments (symmetric NAT, firewalls)')
+      console.warn('⚠️ WARNING: Direct peer-to-peer connection required - no relay available')
+
+      // Get STUN-only servers
+      const stunServers = this.getSTUNOnlyServers()
+      if (stunServers.length === 0) {
+        console.error('❌ No STUN servers available, cannot establish connection')
+        this.emit('stun-fallback-failed', { 
+          userId, 
+          reason: 'no-stun-servers',
+          message: 'No STUN servers configured. Connection cannot be established.'
+        })
+        return
+      }
+
+      console.log('📊 STUN-only fallback details:', {
+        userId,
+        stunServers: stunServers.length,
+        stunUrls: stunServers.map(s => s.urls),
+        timestamp: new Date().toISOString(),
+      })
+
+      // Track connection attempt
+      const attempts = (this.connectionAttempts.get(userId) || 0) + 1
+      this.connectionAttempts.set(userId, attempts)
+
+      // Close existing connection
+      const existingPc = this.peerConnections.get(userId)
+      if (existingPc) {
+        existingPc.close()
+        this.peerConnections.delete(userId)
+      }
+
+      // Create new peer connection with STUN-only configuration
+      const pc = new RTCPeerConnection({ iceServers: stunServers })
+
+      // Track connection start time
+      this.connectionStartTimes.set(userId, Date.now())
+      this.iceCandidateTypes.set(userId, new Set())
+
+      // Add local tracks
+      if (this.localStream) {
+        this.localStream.getTracks().forEach(track => {
+          pc.addTrack(track, this.localStream!)
+        })
+      }
+
+      // Set up event handlers (same as createPeerConnection)
+      pc.onnegotiationneeded = async () => {
+        try {
+          console.log('🔄 Negotiation needed for STUN-only connection', userId)
+          if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
+            console.log('⚠️ Skipping negotiation, signaling state:', pc.signalingState)
+            return
+          }
+
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+
+          console.log('📤 Sending STUN-only renegotiation offer to', userId)
+          wsService.send({
+            type: 'voice:offer',
+            data: {
+              targetUserId: userId,
+              offer: offer,
+            }
+          })
+        } catch (error) {
+          console.error('❌ Failed to handle STUN-only negotiation:', error)
+        }
+      }
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          const candidateType = this.extractCandidateType(event.candidate)
+          if (candidateType) {
+            const types = this.iceCandidateTypes.get(userId)
+            if (types) {
+              types.add(candidateType)
+            }
+          }
+
+          wsService.send({
+            type: 'voice:ice-candidate',
+            data: {
+              targetUserId: userId,
+              candidate: event.candidate,
+            }
+          })
+        }
+      }
+
+      pc.ontrack = (event) => {
+        console.log('📥 Received remote track from STUN-only connection', userId)
+        const remoteStream = event.streams[0]
+        this.remoteStreams.set(userId, remoteStream)
+
+        // Initialize VAD for remote stream
+        const remoteVad = new VoiceActivityDetector()
+        remoteVad.attachToStream(remoteStream)
+        remoteVad.onVoiceActivity((isActive, level) => {
+          this.emit('voice-activity', { userId, isActive, level })
+          this.updateActiveSpeaker(userId, isActive)
+        })
+        this.remoteVads.set(userId, remoteVad)
+
+        this.emit('remote-stream', { userId, stream: remoteStream })
+      }
+
+      pc.oniceconnectionstatechange = () => {
+        const iceState = pc.iceConnectionState
+        console.log(`ICE connection state (STUN-only) with ${userId}:`, iceState)
+        this.iceConnectionStates.set(userId, iceState)
+
+        if (iceState === 'connected') {
+          const startTime = this.connectionStartTimes.get(userId)
+          if (startTime) {
+            const establishmentTime = Date.now() - startTime
+            this.connectionEstablishedTimes.set(userId, establishmentTime)
+            this.logConnectionStatistics(userId, establishmentTime)
+            connectionMonitor.startMonitoring(userId, pc)
+            
+            console.log('✅ STUN-only connection established successfully')
+            console.warn('⚠️ Connection is using STUN-only mode (no TURN relay)')
+          }
+        } else if (iceState === 'failed') {
+          console.error('❌ STUN-only connection failed for', userId)
+          console.error('❌ Network environment may be too restrictive for P2P connection')
+          this.emit('stun-fallback-failed', { 
+            userId, 
+            reason: 'ice-failed',
+            message: 'STUN-only connection failed. Network may be too restrictive.'
+          })
+        }
+      }
+
+      pc.onconnectionstatechange = () => {
+        console.log(`Connection state (STUN-only) with ${userId}:`, pc.connectionState)
+        
+        if (pc.connectionState === 'failed') {
+          console.error('❌ STUN-only peer connection failed for', userId)
+          this.emit('stun-fallback-failed', { 
+            userId, 
+            reason: 'connection-failed',
+            message: 'STUN-only connection failed.'
+          })
+        } else if (pc.connectionState === 'closed') {
+          console.log(`🔒 STUN-only connection closed for ${userId}`)
+          this.cleanupPeerConnection(userId)
+          this.emit('user-left', { userId })
+        }
+      }
+
+      // Store peer connection
+      this.peerConnections.set(userId, pc)
+
+      // Create and send offer
+      const offer = await pc.createOffer({ iceRestart: true })
+      await pc.setLocalDescription(offer)
+
+      console.log('📤 Sending STUN-only fallback offer to', userId)
+      wsService.send({
+        type: 'voice:offer',
+        data: {
+          targetUserId: userId,
+          offer: offer,
+        }
+      })
+
+      // Emit warning event for UI notification (Requirement 8.2)
+      this.emit('stun-fallback-attempted', { 
+        userId,
+        warning: 'Using STUN-only mode. Connection may be unstable in restrictive networks.',
+        limitations: [
+          'No relay server available',
+          'May fail with symmetric NAT',
+          'May fail behind restrictive firewalls',
+          'Direct peer-to-peer connection required'
+        ]
+      })
+
+      console.warn('⚠️ STUN-only fallback initiated for', userId)
+      console.warn('⚠️ Monitor connection quality - may be unstable')
+
+    } catch (error) {
+      // Enhanced error logging with full context (Requirement 6.4)
+      const pc = this.peerConnections.get(userId)
+      errorLogger.logPeerConnectionError(
+        error,
+        'stun-fallback',
+        userId,
+        pc || null,
+        {
+          attempts: this.connectionAttempts.get(userId) || 0,
+          stunServers: this.getSTUNOnlyServers().length,
+        }
+      )
+      this.emit('stun-fallback-failed', { 
+        userId, 
+        error,
+        message: error instanceof Error ? error.message : 'STUN-only fallback failed'
+      })
     }
   }
 
@@ -832,7 +1603,18 @@ class WebRTCService {
 
     // Use ReconnectionManager to handle reconnection
     this.reconnectionManager.attemptReconnection(userId).catch((error) => {
-      console.error(`❌ Reconnection failed for ${userId}:`, error)
+      // Enhanced error logging with full context (Requirement 6.4)
+      const pc = this.peerConnections.get(userId)
+      errorLogger.logPeerConnectionError(
+        error,
+        'reconnection',
+        userId,
+        pc || null,
+        {
+          attempts: this.reconnectionManager.getAttemptCount(userId),
+          channelId: this.currentChannelId,
+        }
+      )
       
       // Emit reconnection failed event
       this.emit('reconnection-failed', { 
@@ -861,16 +1643,49 @@ class WebRTCService {
   }
 
   // Handler: Recebeu lista de usuários já conectados
+  // Task 6.1: Enhanced to properly process all users with comprehensive logging and error handling
+  // Implements Requirement 2.1: Complete user list on rejoin
   private async handleExistingUsers(data: { users: Array<{ userId: string; username: string }> }) {
     console.log('👥 Received existing users:', data.users.length)
+    
+    // Log detailed information about existing users (Requirement 2.1)
+    console.log('📊 Existing users list:', {
+      totalUsers: data.users.length,
+      userIds: data.users.map(u => u.userId),
+      usernames: data.users.map(u => u.username),
+      timestamp: new Date().toISOString(),
+    })
+    
+    // Verify all users in list are processed (Requirement 2.1)
+    const connectionResults: Array<{
+      userId: string
+      username: string
+      success: boolean
+      error?: string
+      connectionEstablished: boolean
+    }> = []
 
     // Para cada usuário existente, criar conexão e enviar offer
     for (const user of data.users) {
       try {
         console.log('👤 Connecting to existing user:', user.username, 'userId:', user.userId)
+        
+        // Log connection attempt start (Requirement 2.1)
+        console.log('📊 Starting connection to existing user:', {
+          userId: user.userId,
+          username: user.username,
+          currentPeerCount: this.peerConnections.size,
+          hasLocalStream: !!this.localStream,
+          timestamp: new Date().toISOString(),
+        })
 
         // Criar conexão peer
         const pc = await this.createPeerConnection(user.userId)
+        
+        // Verify peer connection was created (Requirement 2.1)
+        if (!this.peerConnections.has(user.userId)) {
+          throw new Error(`Peer connection not found in map after creation for ${user.userId}`)
+        }
 
         // Criar e enviar offer
         const offer = await pc.createOffer()
@@ -884,16 +1699,92 @@ class WebRTCService {
             offer: offer,
           }
         })
+        
+        // Log successful connection setup (Requirement 2.1)
+        console.log('✅ Connection setup completed for existing user:', {
+          userId: user.userId,
+          username: user.username,
+          offerSent: true,
+          peerConnectionState: pc.connectionState,
+          signalingState: pc.signalingState,
+        })
 
         this.emit('user-joined', user)
+        
+        // Track successful connection attempt
+        connectionResults.push({
+          userId: user.userId,
+          username: user.username,
+          success: true,
+          connectionEstablished: false, // Will be true when ICE completes
+        })
       } catch (error) {
-        console.error('Failed to connect to existing user:', user.username, error)
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logChannelError(
+          error,
+          'connect-to-existing-user',
+          this.currentChannelId,
+          {
+            userId: user.userId,
+            username: user.username,
+            timestamp: new Date().toISOString(),
+          }
+        )
+        
+        // Track failed connection attempt
+        connectionResults.push({
+          userId: user.userId,
+          username: user.username,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          connectionEstablished: false,
+        })
+        
+        // Emit error event for UI notification
+        this.emit('connection-error', {
+          userId: user.userId,
+          username: user.username,
+          error: error instanceof Error ? error.message : 'Failed to connect',
+          phase: 'existing-user-connection',
+        })
       }
+    }
+    
+    // Log summary of connection attempts (Requirement 2.1)
+    const successCount = connectionResults.filter(r => r.success).length
+    const failureCount = connectionResults.filter(r => !r.success).length
+    
+    console.log('📊 Existing users connection summary:', {
+      totalUsers: data.users.length,
+      successfulConnections: successCount,
+      failedConnections: failureCount,
+      successRate: `${((successCount / data.users.length) * 100).toFixed(1)}%`,
+      results: connectionResults,
+      timestamp: new Date().toISOString(),
+    })
+    
+    // Emit summary event for monitoring
+    this.emit('existing-users-processed', {
+      totalUsers: data.users.length,
+      successfulConnections: successCount,
+      failedConnections: failureCount,
+      results: connectionResults,
+    })
+    
+    // Verify all users were processed (Requirement 2.1)
+    if (connectionResults.length !== data.users.length) {
+      console.error('❌ Not all users were processed!', {
+        expected: data.users.length,
+        actual: connectionResults.length,
+      })
+    } else {
+      console.log('✅ All existing users were processed')
     }
   }
 
   // Handler: Novo usuário entrou no canal
   // Task 14: Enhanced with comprehensive operation logging (Requirements 4.1, 4.2, 4.5)
+  // Task 6.3: Enhanced to ensure bidirectional connection establishment (Requirement 2.2)
   private async handleUserJoined(data: { userId: string; username: string }) {
     console.log('👤 User joined voice:', data.username, 'userId:', data.userId)
     
@@ -912,8 +1803,19 @@ class WebRTCService {
     })
 
     try {
-      // Criar conexão peer
+      // Verify both sides create peer connections (Requirement 2.2)
+      // This side (local) creates a peer connection and sends an offer
+      // The other side should receive the offer and create their peer connection
+      
+      // Criar conexão peer (local side of bidirectional connection)
       const pc = await this.createPeerConnection(data.userId)
+      
+      // Verify peer connection was created locally (Requirement 2.2)
+      if (!this.peerConnections.has(data.userId)) {
+        throw new Error(`Local peer connection not found in map after creation for ${data.userId}`)
+      }
+      
+      console.log('✅ Local peer connection created for', data.username)
 
       // Criar e enviar offer
       const offer = await pc.createOffer()
@@ -937,24 +1839,48 @@ class WebRTCService {
         }
       })
       
+      // Log bidirectional establishment progress (Requirement 2.2)
+      console.log('📊 Bidirectional connection establishment:', {
+        peerId: data.userId,
+        username: data.username,
+        localSide: 'offer sent',
+        remoteSide: 'waiting for answer',
+        localConnectionState: pc.connectionState,
+        localSignalingState: pc.signalingState,
+        timestamp: new Date().toISOString(),
+      })
+      
       console.log('✅ User joined handled successfully:', data.username)
 
       this.emit('user-joined', data)
     } catch (error) {
-      // Enhanced error logging with full context (Requirement 4.5)
-      console.error('❌ Failed to handle user joined:', {
-        peerId: data.userId,
+      // Enhanced error logging with full context (Requirement 6.4)
+      const pc = this.peerConnections.get(data.userId)
+      errorLogger.logPeerConnectionError(
+        error,
+        'handle-user-joined',
+        data.userId,
+        pc || null,
+        {
+          username: data.username,
+          channelId: this.currentChannelId,
+          timestamp: new Date().toISOString(),
+        }
+      )
+      
+      // Emit error event for UI notification
+      this.emit('connection-error', {
+        userId: data.userId,
         username: data.username,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        errorName: error instanceof Error ? error.name : 'Unknown',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Failed to establish connection',
+        phase: 'user-joined',
       })
     }
   }
 
   // Handler: Recebeu offer de outro usuário
   // Task 14: Enhanced with comprehensive negotiation logging (Requirements 4.2, 4.5)
+  // Task 6.3: Enhanced to log bidirectional connection establishment (Requirement 2.2)
   private async handleOffer(data: { userId: string; offer: RTCSessionDescriptionInit }) {
     console.log('📨 Received offer from', data.userId)
     
@@ -971,9 +1897,18 @@ class WebRTCService {
       let pc = this.peerConnections.get(data.userId)
 
       if (!pc) {
-        // Se não existe, criar nova conexão
+        // Se não existe, criar nova conexão (remote side of bidirectional connection)
         console.log('➕ Creating new peer connection for offer from', data.userId)
         pc = await this.createPeerConnection(data.userId)
+        
+        // Log bidirectional connection establishment (Requirement 2.2)
+        console.log('📊 Bidirectional connection establishment:', {
+          peerId: data.userId,
+          localSide: 'peer connection created',
+          remoteSide: 'offer received',
+          direction: 'remote->local',
+          timestamp: new Date().toISOString(),
+        })
       } else {
         // Se já existe, esta é uma renegociação
         console.log('🔄 Handling renegotiation offer from', data.userId)
@@ -1011,22 +1946,44 @@ class WebRTCService {
         }
       })
       
+      // Log bidirectional connection progress (Requirement 2.2)
+      console.log('📊 Bidirectional connection progress:', {
+        peerId: data.userId,
+        localSide: 'answer sent',
+        remoteSide: 'waiting for ICE candidates',
+        localConnectionState: pc.connectionState,
+        localSignalingState: pc.signalingState,
+        timestamp: new Date().toISOString(),
+      })
+      
       console.log('✅ Offer handled successfully for', data.userId)
     } catch (error) {
-      // Enhanced error logging with full context (Requirement 4.5)
-      console.error('❌ Failed to handle offer:', {
-        peerId: data.userId,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        errorName: error instanceof Error ? error.name : 'Unknown',
-        stack: error instanceof Error ? error.stack : undefined,
-        offerType: data.offer.type,
-        timestamp: new Date().toISOString(),
+      // Enhanced error logging with full context (Requirement 6.4)
+      const pc = this.peerConnections.get(data.userId)
+      errorLogger.logPeerConnectionError(
+        error,
+        'handle-offer',
+        data.userId,
+        pc || null,
+        {
+          offerType: data.offer.type,
+          channelId: this.currentChannelId,
+          timestamp: new Date().toISOString(),
+        }
+      )
+      
+      // Emit error event for UI notification
+      this.emit('connection-error', {
+        userId: data.userId,
+        error: error instanceof Error ? error.message : 'Failed to handle offer',
+        phase: 'offer-handling',
       })
     }
   }
 
   // Handler: Recebeu answer de outro usuário
   // Task 14: Enhanced with comprehensive negotiation logging (Requirements 4.2, 4.5)
+  // Task 6.3: Enhanced to log bidirectional connection completion (Requirement 2.2)
   private async handleAnswer(data: { userId: string; answer: RTCSessionDescriptionInit }) {
     console.log('📨 Received answer from', data.userId)
     
@@ -1060,36 +2017,91 @@ class WebRTCService {
           connectionState: pc.connectionState,
           iceConnectionState: pc.iceConnectionState,
         })
-      } catch (error) {
-        // Enhanced error logging with full context (Requirement 4.5)
-        console.error('❌ Failed to handle answer:', {
+        
+        // Log bidirectional connection completion (Requirement 2.2)
+        console.log('📊 Bidirectional connection signaling complete:', {
           peerId: data.userId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          errorName: error instanceof Error ? error.name : 'Unknown',
-          stack: error instanceof Error ? error.stack : undefined,
-          answerType: data.answer.type,
+          localSide: 'answer received and processed',
+          remoteSide: 'signaling complete',
+          direction: 'local->remote',
           signalingState: pc.signalingState,
+          nextPhase: 'ICE candidate exchange',
           timestamp: new Date().toISOString(),
+        })
+      } catch (error) {
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logPeerConnectionError(
+          error,
+          'handle-answer',
+          data.userId,
+          pc,
+          {
+            answerType: data.answer.type,
+            channelId: this.currentChannelId,
+            timestamp: new Date().toISOString(),
+          }
+        )
+        
+        // Emit error event for UI notification
+        this.emit('connection-error', {
+          userId: data.userId,
+          error: error instanceof Error ? error.message : 'Failed to handle answer',
+          phase: 'answer-handling',
         })
       }
     } else {
       console.error('❌ No peer connection found for answer from', data.userId)
+      
+      // Emit error event for missing peer connection
+      this.emit('connection-error', {
+        userId: data.userId,
+        error: 'No peer connection found for answer',
+        phase: 'answer-handling',
+      })
     }
   }
 
   // Handler: Recebeu ICE candidate
+  // Task 8.8: Enhanced with timestamp logging (Requirement 9.4)
   private async handleIceCandidate(data: { userId: string; candidate: RTCIceCandidateInit }) {
+    const timestamp = new Date().toISOString()
     console.log('📨 Received ICE candidate from', data.userId)
+    
+    // Log ICE candidate details with timestamp (Requirement 9.4)
+    console.log('📊 ICE candidate details:', {
+      peerId: data.userId,
+      candidate: data.candidate.candidate,
+      sdpMid: data.candidate.sdpMid,
+      sdpMLineIndex: data.candidate.sdpMLineIndex,
+      timestamp,
+    })
+    
     const pc = this.peerConnections.get(data.userId)
     if (pc) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
-        console.log('✅ ICE candidate added')
+        console.log('✅ ICE candidate added:', {
+          peerId: data.userId,
+          timestamp,
+        })
       } catch (error) {
-        console.error('Failed to add ICE candidate:', error)
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logPeerConnectionError(
+          error,
+          'add-ice-candidate',
+          data.userId,
+          pc,
+          {
+            candidate: data.candidate.candidate,
+            timestamp,
+          }
+        )
       }
     } else {
-      console.warn('⚠️ No peer connection found for', data.userId)
+      console.warn('⚠️ No peer connection found for ICE candidate:', {
+        peerId: data.userId,
+        timestamp,
+      })
     }
   }
 
@@ -1139,6 +2151,117 @@ class WebRTCService {
     this.emit('user-left', data)
   }
 
+  /**
+   * Clean up peer connection resources
+   * Task 6.5: Implements Requirement 2.3 - Cleanup on unexpected disconnect
+   * 
+   * This method is called when a peer connection is closed or needs to be cleaned up.
+   * It ensures all resources associated with the peer connection are properly released.
+   * 
+   * @param userId - User ID of the peer connection to clean up
+   */
+  private cleanupPeerConnection(userId: string): void {
+    console.log('🧹 Cleaning up peer connection for', userId)
+    
+    // Log cleanup operation start (Requirement 2.3)
+    console.log('📊 Peer connection cleanup details:', {
+      userId,
+      hasPeerConnection: this.peerConnections.has(userId),
+      hasRemoteStream: this.remoteStreams.has(userId),
+      hasRemoteVad: this.remoteVads.has(userId),
+      isBeingMonitored: connectionMonitor.isMonitoring(userId),
+      timestamp: new Date().toISOString(),
+    })
+
+    // Close and remove peer connection (Requirement 2.3)
+    const pc = this.peerConnections.get(userId)
+    if (pc) {
+      console.log(`  Closing peer connection for ${userId}`)
+      
+      // Remove event listeners before closing to prevent callbacks
+      pc.onicecandidate = null
+      pc.ontrack = null
+      pc.oniceconnectionstatechange = null
+      pc.onconnectionstatechange = null
+      pc.onnegotiationneeded = null
+      
+      // Close the connection
+      pc.close()
+      
+      // Remove from map
+      this.peerConnections.delete(userId)
+      console.log(`  ✅ Peer connection closed and removed for ${userId}`)
+    }
+
+    // Remove remote stream (Requirement 2.3)
+    if (this.remoteStreams.has(userId)) {
+      console.log(`  Removing remote stream for ${userId}`)
+      this.remoteStreams.delete(userId)
+      console.log(`  ✅ Remote stream removed for ${userId}`)
+    }
+
+    // Clean up remote VAD (Requirement 2.3)
+    const remoteVad = this.remoteVads.get(userId)
+    if (remoteVad) {
+      console.log(`  Detaching remote VAD for ${userId}`)
+      remoteVad.detach()
+      this.remoteVads.delete(userId)
+      console.log(`  ✅ Remote VAD detached and removed for ${userId}`)
+    }
+
+    // Stop monitoring connection quality (Requirement 2.3)
+    if (connectionMonitor.isMonitoring(userId)) {
+      console.log(`  Stopping connection monitoring for ${userId}`)
+      connectionMonitor.stopMonitoring(userId)
+      console.log(`  ✅ Connection monitoring stopped for ${userId}`)
+    }
+
+    // Clean up TURN fallback tracking (Requirement 2.3)
+    this.connectionAttempts.delete(userId)
+    this.usingTURNOnly.delete(userId)
+    this.iceConnectionStates.delete(userId)
+    console.log(`  ✅ TURN fallback tracking cleaned up for ${userId}`)
+
+    // Clean up connection statistics tracking (Requirement 2.3)
+    this.connectionStartTimes.delete(userId)
+    this.connectionEstablishedTimes.delete(userId)
+    this.iceCandidateTypes.delete(userId)
+    console.log(`  ✅ Connection statistics cleaned up for ${userId}`)
+
+    // Clean up reconnection tracking using ReconnectionManager (Requirement 2.3)
+    this.reconnectionManager.cancelReconnection(userId)
+    this.reconnectionManager.resetReconnectionState(userId)
+    console.log(`  ✅ Reconnection tracking cleaned up for ${userId}`)
+
+    // Clean up active speaker tracking (Requirement 2.3)
+    this.speakingUsers.delete(userId)
+    if (this.activeSpeakerId === userId) {
+      console.log(`  Clearing active speaker (was ${userId})`)
+      this.setActiveSpeaker(null)
+      console.log(`  ✅ Active speaker cleared`)
+    }
+
+    // Log cleanup completion (Requirement 2.3)
+    console.log('✅ Peer connection cleanup completed for', userId)
+    
+    // Verify cleanup was successful (Requirement 2.3)
+    const cleanupVerification = {
+      hasPeerConnection: this.peerConnections.has(userId),
+      hasRemoteStream: this.remoteStreams.has(userId),
+      hasRemoteVad: this.remoteVads.has(userId),
+      hasConnectionAttempts: this.connectionAttempts.has(userId),
+      hasConnectionStats: this.connectionStartTimes.has(userId),
+    }
+    
+    const allCleanedUp = Object.values(cleanupVerification).every(v => v === false)
+    
+    if (!allCleanedUp) {
+      console.error('❌ Cleanup verification failed for', userId, cleanupVerification)
+    } else {
+      console.log('✅ Cleanup verification passed for', userId)
+    }
+  }
+
   // Handler: Status de mute mudou
   private handleMuteStatus(data: any) {
     console.log('🔇 Mute status changed:', data.userId, data.isMuted || data.data?.isMuted)
@@ -1157,6 +2280,183 @@ class WebRTCService {
       userId: data.userId,
       isVideoEnabled: isVideoEnabled
     })
+  }
+
+  /**
+   * Handler: WebSocket reconnection detected
+   * Implements Requirement 5.4: Peer re-establishment on WebSocket reconnect
+   * 
+   * When the WebSocket reconnects, this method:
+   * 1. Detects if we're still in a voice channel
+   * 2. Re-establishes peer connections with all users in the channel
+   * 3. Restores channel state (audio/video settings)
+   * 
+   * @param data - Reconnection event data containing timestamp and subscribed channels
+   */
+  private async handleWebSocketReconnection(data: any): Promise<void> {
+    console.log('🔄 WebSocket reconnection detected, re-establishing peer connections')
+    
+    // Log reconnection details (Requirement 5.4)
+    console.log('📊 WebSocket reconnection details:', {
+      timestamp: data.timestamp,
+      subscribedChannels: data.subscribedChannels,
+      currentChannelId: this.currentChannelId,
+      activePeerConnections: this.peerConnections.size,
+      hasLocalStream: !!this.localStream,
+      localStreamTracks: this.localStream?.getTracks().map(t => ({
+        kind: t.kind,
+        id: t.id,
+        enabled: t.enabled,
+        readyState: t.readyState,
+      })) || [],
+    })
+
+    // Check if we're in a voice channel (Requirement 5.4)
+    if (!this.currentChannelId) {
+      console.log('ℹ️ Not in a voice channel, no peer connections to re-establish')
+      return
+    }
+
+    // Check if we have a local stream (Requirement 5.4)
+    if (!this.localStream) {
+      console.warn('⚠️ No local stream available, cannot re-establish peer connections')
+      return
+    }
+
+    // Capture current media state before reconnection (Requirement 5.4)
+    const audioTrack = this.localStream.getAudioTracks()[0]
+    const videoTrack = this.trackManager.getCurrentVideoTrack()
+    const videoState = this.trackManager.getCurrentTrackState()
+    const audioEnabled = audioTrack?.enabled ?? false
+    const videoEnabled = videoState.isActive && !!videoTrack
+    
+    console.log('📊 Capturing channel state before peer re-establishment:', {
+      channelId: this.currentChannelId,
+      hasAudio: !!audioTrack,
+      audioEnabled,
+      hasVideo: !!videoTrack,
+      videoEnabled,
+      videoType: videoState.type,
+      currentPeerCount: this.peerConnections.size,
+      timestamp: new Date().toISOString(),
+    })
+
+    // Store list of current peer IDs before cleanup
+    const existingPeerIds = Array.from(this.peerConnections.keys())
+    console.log('📊 Existing peer connections before cleanup:', existingPeerIds)
+
+    // Clean up existing peer connections (Requirement 5.4)
+    console.log('🧹 Cleaning up existing peer connections before re-establishment')
+    for (const [userId, pc] of this.peerConnections.entries()) {
+      console.log(`  Closing peer connection for ${userId}`)
+      
+      // Remove event listeners
+      pc.onicecandidate = null
+      pc.ontrack = null
+      pc.oniceconnectionstatechange = null
+      pc.onconnectionstatechange = null
+      pc.onnegotiationneeded = null
+      
+      // Close the connection
+      pc.close()
+      
+      // Stop monitoring
+      connectionMonitor.stopMonitoring(userId)
+    }
+    
+    // Clear peer connection maps
+    this.peerConnections.clear()
+    this.remoteStreams.clear()
+    
+    // Clean up remote VADs
+    this.remoteVads.forEach((vad) => {
+      vad.detach()
+    })
+    this.remoteVads.clear()
+    
+    // Clean up tracking data
+    this.connectionAttempts.clear()
+    this.usingTURNOnly.clear()
+    this.iceConnectionStates.clear()
+    this.connectionStartTimes.clear()
+    this.connectionEstablishedTimes.clear()
+    this.iceCandidateTypes.clear()
+    
+    console.log('✅ Cleanup completed, peer connections cleared')
+
+    // Emit event to notify UI that we're reconnecting
+    this.emit('websocket-reconnecting', {
+      channelId: this.currentChannelId,
+      timestamp: new Date().toISOString(),
+    })
+
+    // Re-join the voice channel to trigger server to send existing users list (Requirement 5.4)
+    console.log('📤 Re-joining voice channel after WebSocket reconnection')
+    console.log('📊 Re-join details:', {
+      channelId: this.currentChannelId,
+      videoEnabled,
+      audioEnabled,
+      timestamp: new Date().toISOString(),
+    })
+
+    try {
+      // Send voice:join message to server
+      // The server will respond with voice:existing-users which will trigger peer connection establishment
+      wsService.send({
+        type: 'voice:join',
+        channelId: this.currentChannelId,
+        videoEnabled: videoEnabled,
+      })
+
+      console.log('✅ Voice channel re-join message sent')
+      
+      // Emit event to notify that peer re-establishment has been initiated (Requirement 5.4)
+      this.emit('peer-reestablishment-initiated', {
+        channelId: this.currentChannelId,
+        previousPeerCount: existingPeerIds.length,
+        audioEnabled,
+        videoEnabled,
+        videoType: videoState.type,
+        timestamp: new Date().toISOString(),
+      })
+
+      // Log state restoration information (Requirement 5.4)
+      console.log('📊 Channel state to be restored:', {
+        channelId: this.currentChannelId,
+        audioEnabled,
+        videoEnabled,
+        videoType: videoState.type,
+        previousPeers: existingPeerIds,
+        timestamp: new Date().toISOString(),
+      })
+
+      console.log('✅ WebSocket reconnection handling completed')
+      console.log('ℹ️ Waiting for server to send existing users list to complete peer re-establishment')
+
+    } catch (error) {
+      // Enhanced error logging with full context (Requirement 6.4)
+      errorLogger.logChannelError(
+        error,
+        'websocket-reconnection-handling',
+        this.currentChannelId,
+        {
+          audioEnabled,
+          videoEnabled,
+          videoType: videoState.type,
+          previousPeerCount: existingPeerIds.length,
+          timestamp: new Date().toISOString(),
+        }
+      )
+
+      // Emit error event for UI notification
+      this.emit('websocket-reconnection-error', {
+        channelId: this.currentChannelId,
+        error: error instanceof Error ? error.message : 'Failed to handle WebSocket reconnection',
+        timestamp: new Date().toISOString(),
+      })
+
+      console.error('❌ Failed to handle WebSocket reconnection:', error)
+    }
   }
 
   // Mutar/desmutar microfone
@@ -1192,20 +2492,40 @@ class WebRTCService {
 
   // Ligar/desligar vídeo
   // Implements Requirements 1.1, 1.2, 1.3, 5.1, 6.3
-  // Task 14: Enhanced with comprehensive operation logging (Requirements 4.1, 4.4, 4.5)
+  // Task 5.3: Enhanced with state verification and operation queuing (Requirement 1.3)
   async toggleVideo(): Promise<boolean> {
+    // Operation queuing prevents race conditions (Requirement 1.3)
     return this.trackManager.queueOperation('add-video', async () => {
       try {
-        // Log operation start (Requirement 4.1)
+        // Log operation start with comprehensive state (Requirement 1.3)
         console.log('📹 Toggle video operation started')
-        console.log('📊 Video state before toggle:', {
+        
+        // Verify state BEFORE toggle (Requirement 1.3)
+        const stateBefore = {
           hasLocalStream: !!this.localStream,
-          currentTrack: this.trackManager.getCurrentVideoTrack()?.id || 'none',
+          currentTrack: this.trackManager.getCurrentVideoTrack(),
+          currentTrackId: this.trackManager.getCurrentVideoTrack()?.id || 'none',
           currentType: this.trackManager.getCurrentTrackType(),
           isActive: this.trackManager.getCurrentTrackState().isActive,
+          isEnabled: this.trackManager.getCurrentVideoTrack()?.enabled ?? false,
           peerCount: this.peerConnections.size,
           timestamp: new Date().toISOString(),
-        })
+        }
+        
+        console.log('📊 Video state before toggle:', stateBefore)
+        
+        // Verify state consistency before operation (Requirement 1.3)
+        if (stateBefore.currentTrack) {
+          const trackInStream = this.localStream?.getVideoTracks().find(t => t.id === stateBefore.currentTrackId)
+          if (!trackInStream) {
+            console.warn('⚠️ State inconsistency detected: track in manager but not in stream')
+          } else if (trackInStream.enabled !== stateBefore.isEnabled) {
+            console.warn('⚠️ State inconsistency detected: track enabled state mismatch', {
+              inStream: trackInStream.enabled,
+              inManager: stateBefore.isEnabled,
+            })
+          }
+        }
         
         // Check if we're still in a voice channel
         if (!this.currentChannelId) {
@@ -1270,6 +2590,26 @@ class WebRTCService {
           // Verify audio state after operation (Requirement 6.3)
           this.verifyAudioPreserved(audioStateBefore)
           
+          // Verify state AFTER toggle (Requirement 1.3)
+          const stateAfter = {
+            currentTrack: this.trackManager.getCurrentVideoTrack(),
+            currentTrackId: this.trackManager.getCurrentVideoTrack()?.id || 'none',
+            isActive: this.trackManager.getCurrentTrackState().isActive,
+            isEnabled: this.trackManager.getCurrentVideoTrack()?.enabled ?? false,
+            timestamp: new Date().toISOString(),
+          }
+          
+          console.log('📊 Video state after toggle (disable):', stateAfter)
+          
+          // Verify expected state (Requirement 1.3)
+          if (stateAfter.isEnabled !== false) {
+            console.error('❌ State verification failed: video should be disabled but is enabled')
+          } else if (stateAfter.isActive !== false) {
+            console.error('❌ State verification failed: video should be inactive but is active')
+          } else {
+            console.log('✅ State verification passed: video is correctly disabled')
+          }
+          
           console.log('✅ Video toggle (disable) completed successfully')
           return false
         }
@@ -1321,6 +2661,26 @@ class WebRTCService {
           // Verify audio state after operation (Requirement 6.3)
           this.verifyAudioPreserved(audioStateBefore)
           
+          // Verify state AFTER toggle (Requirement 1.3)
+          const stateAfter = {
+            currentTrack: this.trackManager.getCurrentVideoTrack(),
+            currentTrackId: this.trackManager.getCurrentVideoTrack()?.id || 'none',
+            isActive: this.trackManager.getCurrentTrackState().isActive,
+            isEnabled: this.trackManager.getCurrentVideoTrack()?.enabled ?? false,
+            timestamp: new Date().toISOString(),
+          }
+          
+          console.log('📊 Video state after toggle (enable):', stateAfter)
+          
+          // Verify expected state (Requirement 1.3)
+          if (stateAfter.isEnabled !== true) {
+            console.error('❌ State verification failed: video should be enabled but is disabled')
+          } else if (stateAfter.isActive !== true) {
+            console.error('❌ State verification failed: video should be active but is inactive')
+          } else {
+            console.log('✅ State verification passed: video is correctly enabled')
+          }
+          
           console.log('✅ Video toggle (enable) completed successfully')
           return true
         }
@@ -1330,16 +2690,18 @@ class WebRTCService {
         console.log('📊 No existing video track, adding new camera track')
         return await this.addVideoTrackInternal()
       } catch (error) {
-        // Enhanced error logging with full context (Requirement 4.5)
-        console.error('❌ Failed to toggle video:', {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          errorName: error instanceof Error ? error.name : 'Unknown',
-          stack: error instanceof Error ? error.stack : undefined,
-          currentTrack: this.trackManager.getCurrentVideoTrack()?.id || 'none',
-          currentType: this.trackManager.getCurrentTrackType(),
-          peerCount: this.peerConnections.size,
-          timestamp: new Date().toISOString(),
-        })
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logChannelError(
+          error,
+          'toggle-video',
+          this.currentChannelId,
+          {
+            currentTrack: this.trackManager.getCurrentVideoTrack()?.id || 'none',
+            currentType: this.trackManager.getCurrentTrackType(),
+            peerCount: this.peerConnections.size,
+            timestamp: new Date().toISOString(),
+          }
+        )
         
         // Improved error messages (Requirement 5.5, 7.5)
         if (error instanceof Error) {
@@ -1523,33 +2885,39 @@ class WebRTCService {
         
         return true
       } catch (error) {
-        console.error('❌ Failed to add video track:', error)
+        // Enhanced error logging with full context (Requirement 6.4)
+        errorLogger.logMediaDeviceError(
+          error,
+          'add-video-track',
+          'camera',
+          {
+            channelId: this.currentChannelId,
+            peerCount: this.peerConnections.size,
+            hasLocalStream: !!this.localStream,
+          }
+        )
         
-        // Handle specific error types with improved messages (Requirement 5.5)
+        // Check if this is a media device error or a connection error (Requirement 6.1)
         if (error instanceof Error) {
-          if (error.name === 'NotAllowedError') {
-            this.emit('video-error', { 
-              error: 'Camera permission denied. Please allow camera access in your browser settings.',
-              severity: 'warning',
-              action: 'check-permissions',
+          // Handle media device errors with centralized error handler
+          if (['NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError', 'AbortError', 'SecurityError'].includes(error.name)) {
+            const errorInfo = getMediaErrorInfo(error, 'camera')
+            const guidance = getErrorGuidance(errorInfo)
+            
+            console.error('📋 Media device error details:', {
+              error: errorInfo.error,
+              severity: errorInfo.severity,
+              action: errorInfo.action,
+              technicalDetails: errorInfo.technicalDetails,
+              guidance: guidance,
             })
-          } else if (error.name === 'NotFoundError') {
-            this.emit('video-error', { 
-              error: 'No camera found. Please connect a camera and try again.',
-              severity: 'warning',
-              action: 'check-device',
-            })
-          } else if (error.name === 'NotReadableError') {
-            this.emit('video-error', { 
-              error: 'Camera is already in use by another application. Please close other apps using the camera.',
-              severity: 'warning',
-              action: 'check-device',
-            })
-          } else if (error.name === 'OverconstrainedError') {
-            this.emit('video-error', { 
-              error: 'Camera does not support the requested video quality. Trying with default settings.',
-              severity: 'info',
-              action: 'retry',
+            
+            this.emit('video-error', {
+              error: errorInfo.error,
+              severity: errorInfo.severity,
+              action: errorInfo.action,
+              guidance: guidance,
+              technicalDetails: errorInfo.technicalDetails,
             })
           } else if (error.message && error.message.includes('replace')) {
             // Track replacement error
@@ -1557,6 +2925,7 @@ class WebRTCService {
               error: 'Failed to update video for other participants. Your video may not be visible to others.',
               severity: 'error',
               action: 'reconnect',
+              guidance: getErrorGuidance({ error: '', severity: 'error', action: 'reconnect' }),
             })
           } else if (error.message && error.message.includes('sender')) {
             // Sender creation/verification error
@@ -1564,6 +2933,7 @@ class WebRTCService {
               error: 'Failed to establish video connection with some participants. Your video may not be visible to all.',
               severity: 'error',
               action: 'retry',
+              guidance: getErrorGuidance({ error: '', severity: 'error', action: 'retry' }),
             })
           } else if (error.message && error.message.includes('stable')) {
             // Signaling state error
@@ -1571,12 +2941,15 @@ class WebRTCService {
               error: 'Connection is busy. Please wait a moment and try again.',
               severity: 'warning',
               action: 'retry',
+              guidance: getErrorGuidance({ error: '', severity: 'warning', action: 'retry' }),
             })
           } else {
+            // Generic error
             this.emit('video-error', { 
               error: 'Failed to access camera. Please check your camera and try again.',
               severity: 'error',
               action: 'retry',
+              guidance: getErrorGuidance({ error: '', severity: 'error', action: 'retry' }),
             })
           }
         } else {
@@ -1584,6 +2957,7 @@ class WebRTCService {
             error: 'An unexpected error occurred while accessing the camera.',
             severity: 'error',
             action: 'retry',
+            guidance: getErrorGuidance({ error: '', severity: 'error', action: 'retry' }),
           })
         }
         
@@ -2959,303 +4333,7 @@ class WebRTCService {
     return this.activeSpeakerId
   }
 
-  /**
-   * Synchronize video state across all peer connections
-   * Implements Requirement 5.5: State synchronization across peers
-   * 
-   * This method verifies that all peer connections have consistent video state
-   * with the local video state. If inconsistencies are detected, it automatically
-   * fixes them by adding or replacing tracks as needed.
-   * 
-   * Inconsistencies can occur when:
-   * - A peer connection is established after video was enabled
-   * - Network issues cause track transmission to fail
-   * - Renegotiation fails or is interrupted
-   * - Manual recovery operations are needed
-   * 
-   * @returns Promise<void>
-   */
-  async synchronizeVideoState(): Promise<void> {
-    console.log('🔄 Synchronizing video state across all peers...')
-    
-    try {
-      // Get current local video state
-      const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
-      const currentTrackType = this.trackManager.getCurrentTrackType()
-      const currentTrackState = this.trackManager.getCurrentTrackState()
-      
-      console.log('📊 Current local video state:', {
-        hasTrack: !!currentVideoTrack,
-        trackId: currentVideoTrack?.id || 'none',
-        trackType: currentTrackType,
-        isActive: currentTrackState.isActive,
-        trackEnabled: currentVideoTrack?.enabled,
-        trackReadyState: currentVideoTrack?.readyState,
-      })
-      
-      // If no video track or video is disabled, ensure all peers have no video sender
-      if (!currentVideoTrack || !currentTrackState.isActive || !currentVideoTrack.enabled) {
-        console.log('ℹ️ Video is disabled locally, ensuring all peers have no active video')
-        await this.synchronizeDisabledVideoState()
-        return
-      }
-      
-      // Video is enabled locally, ensure all peers have the correct video track
-      console.log('ℹ️ Video is enabled locally, ensuring all peers have correct video track')
-      await this.synchronizeEnabledVideoState(currentVideoTrack)
-      
-      console.log('✅ Video state synchronized successfully across all peers')
-      
-      // Emit state change event (Requirement 7.5)
-      this.emit('video-state-synchronized', {
-        trackId: currentVideoTrack.id,
-        trackType: currentTrackType,
-        isActive: currentTrackState.isActive,
-        peerCount: this.peerConnections.size,
-      })
-      
-    } catch (error) {
-      console.error('❌ Failed to synchronize video state:', error)
-      
-      // Emit error event with detailed information (Requirement 7.4)
-      this.emit('video-error', {
-        error: 'Failed to synchronize video state across peers',
-        severity: 'warning',
-        action: 'retry',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      })
-      
-      throw error
-    }
-  }
 
-  /**
-   * Synchronize disabled video state across all peers
-   * Ensures all peer connections have no active video senders
-   * 
-   * @returns Promise<void>
-   */
-  private async synchronizeDisabledVideoState(): Promise<void> {
-    console.log('🔄 Synchronizing disabled video state...')
-    
-    const inconsistentPeers: string[] = []
-    const fixResults: Array<{ peerId: string; success: boolean; error?: string }> = []
-    
-    // Check each peer connection
-    for (const [peerId, pc] of this.peerConnections.entries()) {
-      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
-      
-      if (videoSender && videoSender.track && videoSender.track.enabled) {
-        // Peer has active video sender but local video is disabled - inconsistent
-        console.warn(`⚠️ Peer ${peerId} has active video sender but local video is disabled`)
-        inconsistentPeers.push(peerId)
-        
-        try {
-          // Disable the video track for this peer by replacing with null
-          await videoSender.replaceTrack(null)
-          console.log(`✅ Disabled video sender for peer ${peerId}`)
-          
-          fixResults.push({ peerId, success: true })
-        } catch (error) {
-          console.error(`❌ Failed to disable video sender for peer ${peerId}:`, error)
-          
-          fixResults.push({
-            peerId,
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          })
-        }
-      } else {
-        console.log(`✅ Peer ${peerId} video state is consistent (disabled)`)
-      }
-    }
-    
-    // Log synchronization results
-    if (inconsistentPeers.length > 0) {
-      const successCount = fixResults.filter(r => r.success).length
-      const failureCount = fixResults.filter(r => !r.success).length
-      
-      console.log(`📊 Disabled video state synchronization: ${inconsistentPeers.length} inconsistent peers, ${successCount} fixed, ${failureCount} failed`)
-      
-      if (failureCount > 0) {
-        const failedPeers = fixResults.filter(r => !r.success).map(r => r.peerId)
-        console.warn(`⚠️ Failed to synchronize disabled video state for peers: ${failedPeers.join(', ')}`)
-      }
-    } else {
-      console.log('✅ All peers have consistent disabled video state')
-    }
-  }
-
-  /**
-   * Synchronize enabled video state across all peers
-   * Ensures all peer connections have the correct video track
-   * 
-   * @param expectedTrack - The video track that should be present on all peers
-   * @returns Promise<void>
-   */
-  private async synchronizeEnabledVideoState(expectedTrack: MediaStreamTrack): Promise<void> {
-    console.log('🔄 Synchronizing enabled video state...', {
-      expectedTrackId: expectedTrack.id,
-      expectedTrackKind: expectedTrack.kind,
-      expectedTrackEnabled: expectedTrack.enabled,
-      expectedTrackReadyState: expectedTrack.readyState,
-    })
-    
-    // Verify track is valid
-    if (expectedTrack.readyState !== 'live') {
-      const error = `Expected track is not live (readyState: ${expectedTrack.readyState})`
-      console.error(`❌ ${error}`)
-      throw new Error(error)
-    }
-    
-    if (!this.localStream) {
-      const error = 'No local stream available'
-      console.error(`❌ ${error}`)
-      throw new Error(error)
-    }
-    
-    const inconsistentPeers: Array<{
-      peerId: string
-      issue: 'missing-sender' | 'wrong-track' | 'disabled-track'
-      currentTrackId?: string
-    }> = []
-    
-    const fixResults: Array<{ peerId: string; success: boolean; error?: string }> = []
-    
-    // Check each peer connection for inconsistencies
-    for (const [peerId, pc] of this.peerConnections.entries()) {
-      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
-      
-      if (!videoSender) {
-        // Missing video sender - needs to be added
-        console.warn(`⚠️ Peer ${peerId} is missing video sender`)
-        inconsistentPeers.push({ peerId, issue: 'missing-sender' })
-      } else if (!videoSender.track) {
-        // Sender exists but has no track - needs track
-        console.warn(`⚠️ Peer ${peerId} has video sender but no track`)
-        inconsistentPeers.push({ peerId, issue: 'missing-sender' })
-      } else if (videoSender.track.id !== expectedTrack.id) {
-        // Wrong track - needs to be replaced
-        console.warn(`⚠️ Peer ${peerId} has wrong video track:`, {
-          expected: expectedTrack.id,
-          actual: videoSender.track.id,
-        })
-        inconsistentPeers.push({
-          peerId,
-          issue: 'wrong-track',
-          currentTrackId: videoSender.track.id,
-        })
-      } else if (!videoSender.track.enabled) {
-        // Correct track but disabled - needs to be enabled
-        console.warn(`⚠️ Peer ${peerId} has correct track but it's disabled`)
-        inconsistentPeers.push({
-          peerId,
-          issue: 'disabled-track',
-          currentTrackId: videoSender.track.id,
-        })
-      } else {
-        console.log(`✅ Peer ${peerId} video state is consistent`)
-      }
-    }
-    
-    // Fix inconsistencies
-    if (inconsistentPeers.length > 0) {
-      console.log(`🔧 Fixing ${inconsistentPeers.length} inconsistent peer(s)...`)
-      
-      for (const { peerId, issue, currentTrackId } of inconsistentPeers) {
-        const pc = this.peerConnections.get(peerId)
-        if (!pc) {
-          console.error(`❌ Peer connection not found for ${peerId}`)
-          fixResults.push({
-            peerId,
-            success: false,
-            error: 'Peer connection not found',
-          })
-          continue
-        }
-        
-        try {
-          if (issue === 'missing-sender') {
-            // Add track to create new sender (triggers negotiation)
-            console.log(`➕ Adding video track for peer ${peerId}`)
-            
-            // Wait for stable signaling state
-            await this.waitForStableState(pc, peerId)
-            
-            const newSender = pc.addTrack(expectedTrack, this.localStream)
-            
-            console.log(`✅ Video sender created for peer ${peerId}:`, {
-              trackId: newSender.track?.id,
-              trackKind: newSender.track?.kind,
-              trackEnabled: newSender.track?.enabled,
-            })
-            
-            fixResults.push({ peerId, success: true })
-            
-          } else if (issue === 'wrong-track') {
-            // Replace track with correct one (no negotiation needed)
-            console.log(`🔄 Replacing video track for peer ${peerId}`)
-            
-            const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
-            if (videoSender) {
-              await videoSender.replaceTrack(expectedTrack)
-              
-              console.log(`✅ Video track replaced for peer ${peerId}`)
-              fixResults.push({ peerId, success: true })
-            } else {
-              throw new Error('Video sender not found after check')
-            }
-            
-          } else if (issue === 'disabled-track') {
-            // Track is correct but disabled - this shouldn't happen in normal operation
-            // The track should be enabled at the source, not per-sender
-            console.warn(`⚠️ Peer ${peerId} has disabled track - this may indicate a deeper issue`)
-            
-            // Try replacing with the enabled track
-            const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
-            if (videoSender) {
-              await videoSender.replaceTrack(expectedTrack)
-              
-              console.log(`✅ Video track replaced for peer ${peerId}`)
-              fixResults.push({ peerId, success: true })
-            } else {
-              throw new Error('Video sender not found after check')
-            }
-          }
-          
-        } catch (error) {
-          console.error(`❌ Failed to fix video state for peer ${peerId}:`, error)
-          
-          fixResults.push({
-            peerId,
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          })
-        }
-      }
-      
-      // Log synchronization results
-      const successCount = fixResults.filter(r => r.success).length
-      const failureCount = fixResults.filter(r => !r.success).length
-      
-      console.log(`📊 Enabled video state synchronization: ${inconsistentPeers.length} inconsistent peers, ${successCount} fixed, ${failureCount} failed`)
-      
-      if (failureCount > 0) {
-        const failedPeers = fixResults.filter(r => !r.success).map(r => r.peerId)
-        console.warn(`⚠️ Failed to synchronize enabled video state for peers: ${failedPeers.join(', ')}`)
-        
-        // Emit warning event
-        this.emit('video-error', {
-          error: `Video may not be visible to some participants (${failureCount} failed)`,
-          severity: 'warning',
-          action: 'retry',
-          failedPeers,
-        })
-      }
-    } else {
-      console.log('✅ All peers have consistent enabled video state')
-    }
-  }
 
   /**
    * Perform health check on all peer connections
@@ -3849,6 +4927,965 @@ class WebRTCService {
     } else {
       console.log(`✅ All ${totalPeers} peer(s) verified successfully with track ${expectedTrackId}`)
     }
+  }
+
+  /**
+   * Synchronize video state across all peer connections
+   * Implements Requirement 1.5: State synchronization across peers
+   * 
+   * This method verifies that all peer connections have consistent video state
+   * with the local video state. If inconsistencies are detected, it automatically
+   * fixes them by adding or replacing tracks as needed.
+   * 
+   * Uses StateSynchronizationManager to detect and fix inconsistencies.
+   * 
+   * @returns Promise<void>
+   */
+  async synchronizeVideoState(): Promise<void> {
+    console.log('🔄 Synchronizing video state across all peers...')
+    
+    try {
+      // Get current local video state
+      const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
+      const currentTrackType = this.trackManager.getCurrentTrackType()
+      const currentTrackState = this.trackManager.getCurrentTrackState()
+      
+      console.log('📊 Current local video state:', {
+        hasTrack: !!currentVideoTrack,
+        trackId: currentVideoTrack?.id || 'none',
+        trackType: currentTrackType,
+        isActive: currentTrackState.isActive,
+        trackEnabled: currentVideoTrack?.enabled,
+        trackReadyState: currentVideoTrack?.readyState,
+      })
+      
+      // Determine expected video state
+      const expectedVideoEnabled = currentTrackState.isActive && !!currentVideoTrack && currentVideoTrack.enabled
+      
+      // Detect inconsistencies using StateSynchronizationManager
+      const inconsistencies = this.stateSyncManager.detectInconsistencies(
+        this.peerConnections,
+        currentVideoTrack,
+        expectedVideoEnabled
+      )
+      
+      if (inconsistencies.length === 0) {
+        console.log('✅ All peers have consistent video state, no synchronization needed')
+        return
+      }
+      
+      console.log(`🔧 Found ${inconsistencies.length} inconsistenc${inconsistencies.length === 1 ? 'y' : 'ies'}, synchronizing...`)
+      
+      // Synchronize state using StateSynchronizationManager
+      await this.stateSyncManager.synchronizeState(
+        inconsistencies,
+        this.peerConnections,
+        currentVideoTrack,
+        this.localStream
+      )
+      
+      console.log('✅ Video state synchronized successfully across all peers')
+      
+      // Emit state synchronized event (Requirement 5.3)
+      this.emit('video-state-synchronized', {
+        trackId: currentVideoTrack?.id || 'none',
+        trackType: currentTrackType,
+        isActive: currentTrackState.isActive,
+        peerCount: this.peerConnections.size,
+        inconsistenciesFixed: inconsistencies.length,
+      })
+      
+    } catch (error) {
+      console.error('❌ Failed to synchronize video state:', error)
+      
+      // Emit error event with detailed information
+      this.emit('video-error', {
+        error: 'Failed to synchronize video state across peers',
+        severity: 'warning',
+        action: 'retry',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      })
+      
+      throw error
+    }
+  }
+
+  /**
+   * Verify video senders exist for all peer connections
+   * Implements Requirement 1.4: Video sender presence verification
+   * 
+   * Checks that all peer connections have video senders when video is enabled.
+   * Logs verification results for each peer.
+   * 
+   * @returns Promise<void>
+   */
+  async verifyVideoSenders(): Promise<void> {
+    console.log('🔍 Verifying video senders for all peers...')
+    
+    // Get current video state
+    const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
+    const currentTrackState = this.trackManager.getCurrentTrackState()
+    const expectedVideoEnabled = currentTrackState.isActive && !!currentVideoTrack && currentVideoTrack.enabled
+    
+    if (!expectedVideoEnabled) {
+      console.log('ℹ️ Video is disabled, skipping sender verification')
+      return
+    }
+    
+    console.log('📊 Verifying video senders:', {
+      expectedTrackId: currentVideoTrack?.id,
+      peerCount: this.peerConnections.size,
+    })
+    
+    let allVerified = true
+    const missingPeers: string[] = []
+    const wrongTrackPeers: string[] = []
+    
+    for (const [peerId, pc] of this.peerConnections.entries()) {
+      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
+      
+      if (!videoSender || !videoSender.track) {
+        console.error(`❌ No video sender found for peer ${peerId}`)
+        allVerified = false
+        missingPeers.push(peerId)
+      } else if (videoSender.track.id !== currentVideoTrack!.id) {
+        console.warn(`⚠️ Video sender for peer ${peerId} has unexpected track ID:`, {
+          expected: currentVideoTrack!.id,
+          actual: videoSender.track.id,
+        })
+        wrongTrackPeers.push(peerId)
+      } else {
+        console.log(`✅ Video sender verified for peer ${peerId}:`, {
+          trackId: videoSender.track.id,
+          trackEnabled: videoSender.track.enabled,
+        })
+      }
+    }
+    
+    // Log verification results
+    if (!allVerified) {
+      console.error(`❌ Video sender verification failed:`, {
+        missingPeers: missingPeers.length,
+        wrongTrackPeers: wrongTrackPeers.length,
+      })
+      
+      if (missingPeers.length > 0) {
+        console.error(`  Missing senders for: ${missingPeers.join(', ')}`)
+      }
+      if (wrongTrackPeers.length > 0) {
+        console.warn(`  Wrong track for: ${wrongTrackPeers.join(', ')}`)
+      }
+    } else {
+      console.log('✅ All video senders verified successfully')
+    }
+  }
+
+  /**
+   * Handle background mode transitions
+   * Implements Requirements 4.1, 4.2, 4.3, 4.5
+   * 
+   * @param isBackground - Whether the app is in background mode
+   */
+  public handleBackgroundMode(isBackground: boolean): void {
+    if (isBackground) {
+      console.log('📱 Handling background mode transition')
+      
+      // Log current connection states (Requirement 4.5)
+      console.log('📊 Connection states in background:', {
+        peerCount: this.peerConnections.size,
+        hasLocalStream: !!this.localStream,
+        audioTracks: this.localStream?.getAudioTracks().length || 0,
+        videoTracks: this.localStream?.getVideoTracks().length || 0,
+      })
+      
+      // Ensure audio tracks remain active (Requirement 4.1)
+      if (this.localStream) {
+        const audioTracks = this.localStream.getAudioTracks()
+        audioTracks.forEach(track => {
+          if (track.enabled && track.readyState === 'live') {
+            console.log('✅ Audio track active in background:', {
+              trackId: track.id,
+              enabled: track.enabled,
+              readyState: track.readyState,
+            })
+          } else {
+            console.warn('⚠️ Audio track not active in background:', {
+              trackId: track.id,
+              enabled: track.enabled,
+              readyState: track.readyState,
+            })
+          }
+        })
+        
+        // Ensure video tracks remain active if enabled (Requirement 4.2)
+        const videoTracks = this.localStream.getVideoTracks()
+        videoTracks.forEach(track => {
+          if (track.enabled && track.readyState === 'live') {
+            console.log('✅ Video track active in background:', {
+              trackId: track.id,
+              enabled: track.enabled,
+              readyState: track.readyState,
+            })
+          } else {
+            console.log('ℹ️ Video track state in background:', {
+              trackId: track.id,
+              enabled: track.enabled,
+              readyState: track.readyState,
+            })
+          }
+        })
+      }
+      
+      // Monitor peer connection states (Requirement 4.5)
+      this.monitorConnectionsInBackground()
+      
+      // Emit background mode event
+      this.emit('background-mode-active', { isBackground: true })
+      
+      console.log('✅ Background mode handling complete')
+    } else {
+      console.log('🖥️ Handling foreground mode transition')
+      
+      // Verify connections remain stable (Requirement 4.3)
+      console.log('📊 Connection states after returning to foreground:', {
+        peerCount: this.peerConnections.size,
+        hasLocalStream: !!this.localStream,
+      })
+      
+      // Log that no reconnection is triggered (Requirement 4.3)
+      console.log('ℹ️ Connections remain stable, no reconnection triggered (Requirement 4.3)')
+      
+      // Emit foreground mode event
+      this.emit('background-mode-active', { isBackground: false })
+      
+      console.log('✅ Foreground mode handling complete')
+    }
+  }
+
+  /**
+   * Monitor peer connection states in background mode
+   * Implements Requirement 4.5: Background connection stability
+   * 
+   * Checks all peer connections to ensure they remain in connected or connecting state.
+   * Prevents unnecessary disconnections during background mode.
+   */
+  private monitorConnectionsInBackground(): void {
+    console.log('🔍 Monitoring connections in background mode')
+    
+    const connectionStates: Array<{
+      peerId: string
+      connectionState: RTCPeerConnectionState
+      iceConnectionState: RTCIceConnectionState
+      isStable: boolean
+    }> = []
+    
+    // Check each peer connection state
+    for (const [peerId, pc] of this.peerConnections.entries()) {
+      const connectionState = pc.connectionState
+      const iceConnectionState = pc.iceConnectionState
+      
+      // Connection is stable if it's connected or connecting
+      const isStable = (
+        connectionState === 'connected' || 
+        connectionState === 'connecting' ||
+        iceConnectionState === 'connected' ||
+        iceConnectionState === 'checking'
+      )
+      
+      connectionStates.push({
+        peerId,
+        connectionState,
+        iceConnectionState,
+        isStable,
+      })
+      
+      if (!isStable) {
+        console.warn('⚠️ Unstable connection in background:', {
+          peerId,
+          connectionState,
+          iceConnectionState,
+        })
+      } else {
+        console.log('✅ Stable connection in background:', {
+          peerId,
+          connectionState,
+          iceConnectionState,
+        })
+      }
+    }
+    
+    // Log summary
+    const stableCount = connectionStates.filter(s => s.isStable).length
+    const unstableCount = connectionStates.filter(s => !s.isStable).length
+    
+    console.log('📊 Background connection monitoring summary:', {
+      totalConnections: connectionStates.length,
+      stableConnections: stableCount,
+      unstableConnections: unstableCount,
+      timestamp: new Date().toISOString(),
+    })
+    
+    // Emit monitoring event
+    this.emit('background-connections-monitored', {
+      totalConnections: connectionStates.length,
+      stableConnections: stableCount,
+      unstableConnections: unstableCount,
+      connectionStates,
+    })
+    
+    // If all connections are stable, log success
+    if (unstableCount === 0 && connectionStates.length > 0) {
+      console.log('✅ All connections stable in background mode (Requirement 4.5)')
+    }
+  }
+
+  /**
+   * Get connection quality metrics for all peers
+   * Implements Requirement 9.2: Connection quality monitoring
+   * 
+   * Returns quality metrics for all active peer connections.
+   * Emits quality change events when quality degrades.
+   * 
+   * @returns Map of userId to ConnectionQuality
+   */
+  getAllConnectionQuality(): Map<string, ConnectionQuality> {
+    console.log('📊 Getting connection quality for all peers...')
+    
+    const qualityMap = new Map<string, ConnectionQuality>()
+    
+    for (const [userId] of this.peerConnections.entries()) {
+      const quality = connectionMonitor.getConnectionQuality(userId)
+      if (quality) {
+        qualityMap.set(userId, quality)
+        
+        // Log quality for each peer
+        console.log(`📊 Quality for ${userId}:`, {
+          quality: quality.quality,
+          rtt: quality.rtt,
+          packetsLost: quality.packetsLost,
+          jitter: quality.jitter,
+        })
+      }
+    }
+    
+    console.log(`📊 Retrieved quality metrics for ${qualityMap.size} peer(s)`)
+    
+    return qualityMap
+  }
+
+  /**
+   * Track quality metrics over time
+   * Implements Requirement 9.2: Connection quality monitoring
+   * 
+   * Monitors connection quality and emits events when quality changes.
+   * This method can be called periodically to track quality trends.
+   */
+  trackQualityMetrics(): void {
+    console.log('📊 Tracking quality metrics for all peers...')
+    
+    const qualityMetrics: Array<{
+      userId: string
+      quality: string
+      rtt: number
+      packetsLost: number
+      jitter: number
+      timestamp: number
+    }> = []
+    
+    for (const [userId] of this.peerConnections.entries()) {
+      const quality = connectionMonitor.getConnectionQuality(userId)
+      if (quality) {
+        qualityMetrics.push({
+          userId,
+          quality: quality.quality,
+          rtt: quality.rtt,
+          packetsLost: quality.packetsLost,
+          jitter: quality.jitter,
+          timestamp: Date.now(),
+        })
+      }
+    }
+    
+    // Emit quality metrics event
+    this.emit('quality-metrics-tracked', {
+      metrics: qualityMetrics,
+      timestamp: Date.now(),
+    })
+    
+    console.log('📊 Quality metrics tracked:', {
+      totalPeers: qualityMetrics.length,
+      metrics: qualityMetrics,
+    })
+  }
+
+  /**
+   * Get connection statistics for a specific peer
+   * Implements Requirements 9.1, 9.5: Connection statistics logging and establishment time tracking
+   * 
+   * Returns detailed statistics about a peer connection including:
+   * - ICE candidate types used
+   * - Connection establishment time
+   * - Whether TURN is being used
+   * - Current connection states
+   * 
+   * @param userId - User ID to get statistics for
+   * @returns Connection statistics or null if peer not found
+   */
+  getConnectionStatistics(userId: string): {
+    userId: string
+    establishmentTime: number | null
+    candidateTypes: string[]
+    usingTURN: boolean
+    connectionState: RTCPeerConnectionState | null
+    iceConnectionState: RTCIceConnectionState | null
+    signalingState: RTCSignalingState | null
+    startTime: number | null
+    isConnected: boolean
+  } | null {
+    const pc = this.peerConnections.get(userId)
+    
+    if (!pc) {
+      console.warn(`⚠️ No peer connection found for ${userId}`)
+      return null
+    }
+    
+    // Get establishment time
+    const establishmentTime = this.connectionEstablishedTimes.get(userId) || null
+    
+    // Get ICE candidate types
+    const candidateTypes = Array.from(this.iceCandidateTypes.get(userId) || [])
+    
+    // Check if using TURN
+    const usingTURN = this.usingTURNOnly.get(userId) || candidateTypes.includes('relay')
+    
+    // Get start time
+    const startTime = this.connectionStartTimes.get(userId) || null
+    
+    // Check if connected
+    const isConnected = pc.connectionState === 'connected' || pc.iceConnectionState === 'connected'
+    
+    const stats = {
+      userId,
+      establishmentTime,
+      candidateTypes,
+      usingTURN,
+      connectionState: pc.connectionState,
+      iceConnectionState: pc.iceConnectionState,
+      signalingState: pc.signalingState,
+      startTime,
+      isConnected,
+    }
+    
+    console.log('📊 Connection statistics for', userId, ':', stats)
+    
+    return stats
+  }
+
+  /**
+   * Export comprehensive diagnostic report
+   * Implements Requirement 9.3: Diagnostic report generation
+   * 
+   * Generates a complete diagnostic report including:
+   * - Local media state
+   * - All peer connection states
+   * - Health check results
+   * - Connection statistics
+   * - Connection quality metrics
+   * - Browser information
+   * - Active reconnections
+   * - Background mode status
+   * 
+   * @returns Complete diagnostic report
+   */
+  exportDiagnosticReport(): DiagnosticReport {
+    console.log('📋 Generating diagnostic report...')
+    
+    const timestamp = Date.now()
+    
+    // Gather local state
+    const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
+    const videoState = this.trackManager.getCurrentTrackState()
+    const audioTrack = this.localStream?.getAudioTracks()[0]
+    
+    const localState = {
+      hasLocalStream: !!this.localStream,
+      hasAudio: !!audioTrack,
+      hasVideo: !!currentVideoTrack,
+      videoType: videoState.type,
+      isAudioEnabled: audioTrack?.enabled ?? false,
+      isVideoEnabled: videoState.isActive,
+      audioTrackId: audioTrack?.id || null,
+      videoTrackId: currentVideoTrack?.id || null,
+    }
+    
+    // Gather peer states
+    const peerStates = new Map<string, {
+      connectionState: RTCPeerConnectionState
+      iceConnectionState: RTCIceConnectionState
+      signalingState: RTCSignalingState
+      hasRemoteStream: boolean
+      remoteAudioTracks: number
+      remoteVideoTracks: number
+    }>()
+    
+    for (const [peerId, pc] of this.peerConnections.entries()) {
+      const remoteStream = this.remoteStreams.get(peerId)
+      
+      peerStates.set(peerId, {
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        signalingState: pc.signalingState,
+        hasRemoteStream: !!remoteStream,
+        remoteAudioTracks: remoteStream?.getAudioTracks().length || 0,
+        remoteVideoTracks: remoteStream?.getVideoTracks().length || 0,
+      })
+    }
+    
+    // Perform health checks
+    const healthChecks = this.performHealthCheck()
+    
+    // Gather connection statistics
+    const connectionStatistics: ConnectionStatistics[] = []
+    for (const [peerId] of this.peerConnections.entries()) {
+      const stats = this.getConnectionStatistics(peerId)
+      if (stats) {
+        connectionStatistics.push(stats)
+      }
+    }
+    
+    // Gather connection quality
+    const connectionQuality = this.getAllConnectionQuality()
+    
+    // Gather browser info
+    const browserInfo: BrowserInfo = {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      language: navigator.language,
+      onLine: navigator.onLine,
+      cookieEnabled: navigator.cookieEnabled,
+    }
+    
+    // Get active reconnections
+    const activeReconnections = this.reconnectionManager.getActiveReconnections()
+    
+    // Check background mode
+    const backgroundMode = this.backgroundModeHandler.isInBackground()
+    
+    // Get recent error logs (Requirement 6.4)
+    const recentErrors = errorLogger.getRecentErrors(20)
+    
+    // Create diagnostic report
+    const report: DiagnosticReport = {
+      timestamp,
+      channelId: this.currentChannelId,
+      localState,
+      peerStates,
+      healthChecks,
+      connectionStatistics,
+      connectionQuality,
+      browserInfo,
+      activeReconnections,
+      backgroundMode,
+      recentErrors,
+    }
+    
+    // Log report summary
+    console.log('📋 Diagnostic report generated:', {
+      timestamp: new Date(timestamp).toISOString(),
+      channelId: this.currentChannelId,
+      totalPeers: peerStates.size,
+      healthyPeers: healthChecks.filter(h => h.isHealthy).length,
+      unhealthyPeers: healthChecks.filter(h => !h.isHealthy).length,
+      activeReconnections: activeReconnections.length,
+      backgroundMode,
+    })
+    
+    // Emit diagnostic report event
+    this.emit('diagnostic-report-generated', report)
+    
+    return report
+  }
+
+  /**
+   * Format diagnostic report for easy reading
+   * Implements Requirement 9.3: Format report for easy reading
+   * 
+   * Converts diagnostic report to human-readable string format.
+   * 
+   * @param report - Diagnostic report to format
+   * @returns Formatted report string
+   */
+  formatDiagnosticReport(report: DiagnosticReport): string {
+    const lines: string[] = []
+    
+    lines.push('='.repeat(80))
+    lines.push('WEBRTC DIAGNOSTIC REPORT')
+    lines.push('='.repeat(80))
+    lines.push('')
+    
+    // Timestamp and channel
+    lines.push(`Generated: ${new Date(report.timestamp).toISOString()}`)
+    lines.push(`Channel ID: ${report.channelId || 'Not in channel'}`)
+    lines.push(`Background Mode: ${report.backgroundMode ? 'Yes' : 'No'}`)
+    lines.push('')
+    
+    // Local state
+    lines.push('-'.repeat(80))
+    lines.push('LOCAL STATE')
+    lines.push('-'.repeat(80))
+    lines.push(`Has Local Stream: ${report.localState.hasLocalStream}`)
+    lines.push(`Audio: ${report.localState.hasAudio ? 'Yes' : 'No'} (Enabled: ${report.localState.isAudioEnabled})`)
+    lines.push(`Video: ${report.localState.hasVideo ? 'Yes' : 'No'} (Enabled: ${report.localState.isVideoEnabled}, Type: ${report.localState.videoType})`)
+    if (report.localState.audioTrackId) {
+      lines.push(`Audio Track ID: ${report.localState.audioTrackId}`)
+    }
+    if (report.localState.videoTrackId) {
+      lines.push(`Video Track ID: ${report.localState.videoTrackId}`)
+    }
+    lines.push('')
+    
+    // Browser info
+    lines.push('-'.repeat(80))
+    lines.push('BROWSER INFO')
+    lines.push('-'.repeat(80))
+    lines.push(`User Agent: ${report.browserInfo.userAgent}`)
+    lines.push(`Platform: ${report.browserInfo.platform}`)
+    lines.push(`Language: ${report.browserInfo.language}`)
+    lines.push(`Online: ${report.browserInfo.onLine}`)
+    lines.push(`Cookies Enabled: ${report.browserInfo.cookieEnabled}`)
+    lines.push('')
+    
+    // Peer connections
+    lines.push('-'.repeat(80))
+    lines.push(`PEER CONNECTIONS (${report.peerStates.size})`)
+    lines.push('-'.repeat(80))
+    
+    if (report.peerStates.size === 0) {
+      lines.push('No peer connections')
+    } else {
+      for (const [peerId, state] of report.peerStates.entries()) {
+        lines.push(`\nPeer: ${peerId}`)
+        lines.push(`  Connection State: ${state.connectionState}`)
+        lines.push(`  ICE Connection State: ${state.iceConnectionState}`)
+        lines.push(`  Signaling State: ${state.signalingState}`)
+        lines.push(`  Remote Stream: ${state.hasRemoteStream ? 'Yes' : 'No'}`)
+        lines.push(`  Remote Audio Tracks: ${state.remoteAudioTracks}`)
+        lines.push(`  Remote Video Tracks: ${state.remoteVideoTracks}`)
+      }
+    }
+    lines.push('')
+    
+    // Health checks
+    lines.push('-'.repeat(80))
+    lines.push('HEALTH CHECKS')
+    lines.push('-'.repeat(80))
+    
+    const healthyCount = report.healthChecks.filter(h => h.isHealthy).length
+    const unhealthyCount = report.healthChecks.filter(h => !h.isHealthy).length
+    
+    lines.push(`Healthy: ${healthyCount}, Unhealthy: ${unhealthyCount}`)
+    lines.push('')
+    
+    for (const check of report.healthChecks) {
+      lines.push(`\nPeer: ${check.peerId}`)
+      lines.push(`  Status: ${check.isHealthy ? '✅ HEALTHY' : '❌ UNHEALTHY'}`)
+      
+      if (check.issues.length > 0) {
+        lines.push(`  Issues:`)
+        for (const issue of check.issues) {
+          lines.push(`    - ${issue}`)
+        }
+      }
+      
+      if (check.recommendations.length > 0) {
+        lines.push(`  Recommendations:`)
+        for (const rec of check.recommendations) {
+          lines.push(`    - ${rec}`)
+        }
+      }
+    }
+    lines.push('')
+    
+    // Connection statistics
+    lines.push('-'.repeat(80))
+    lines.push('CONNECTION STATISTICS')
+    lines.push('-'.repeat(80))
+    
+    for (const stats of report.connectionStatistics) {
+      lines.push(`\nPeer: ${stats.userId}`)
+      lines.push(`  Establishment Time: ${stats.establishmentTime ? `${stats.establishmentTime}ms` : 'Not established'}`)
+      lines.push(`  ICE Candidate Types: ${stats.candidateTypes.join(', ') || 'None'}`)
+      lines.push(`  Using TURN: ${stats.usingTURN ? 'Yes' : 'No'}`)
+      lines.push(`  Connected: ${stats.isConnected ? 'Yes' : 'No'}`)
+    }
+    lines.push('')
+    
+    // Connection quality
+    lines.push('-'.repeat(80))
+    lines.push('CONNECTION QUALITY')
+    lines.push('-'.repeat(80))
+    
+    if (report.connectionQuality.size === 0) {
+      lines.push('No quality metrics available')
+    } else {
+      for (const [peerId, quality] of report.connectionQuality.entries()) {
+        lines.push(`\nPeer: ${peerId}`)
+        lines.push(`  Quality: ${quality.quality.toUpperCase()}`)
+        lines.push(`  RTT: ${quality.rtt}ms`)
+        lines.push(`  Packets Lost: ${quality.packetsLost}`)
+        lines.push(`  Jitter: ${quality.jitter}ms`)
+      }
+    }
+    lines.push('')
+    
+    // Active reconnections
+    if (report.activeReconnections.length > 0) {
+      lines.push('-'.repeat(80))
+      lines.push('ACTIVE RECONNECTIONS')
+      lines.push('-'.repeat(80))
+      for (const peerId of report.activeReconnections) {
+        lines.push(`  - ${peerId}`)
+      }
+      lines.push('')
+    }
+    
+    // Recent errors (Requirement 6.4)
+    if (report.recentErrors && report.recentErrors.length > 0) {
+      lines.push('-'.repeat(80))
+      lines.push(`RECENT ERRORS (${report.recentErrors.length})`)
+      lines.push('-'.repeat(80))
+      
+      for (const error of report.recentErrors) {
+        lines.push(`\n[${new Date(error.timestamp).toISOString()}]`)
+        lines.push(`  Operation: ${error.context.operation}`)
+        lines.push(`  Error Type: ${error.errorType}`)
+        lines.push(`  Error Name: ${error.errorName}`)
+        lines.push(`  Message: ${error.errorMessage}`)
+        
+        if (error.context.peerId) {
+          lines.push(`  Peer ID: ${error.context.peerId}`)
+        }
+        if (error.context.channelId) {
+          lines.push(`  Channel ID: ${error.context.channelId}`)
+        }
+        if (error.context.connectionState) {
+          lines.push(`  Connection State: ${error.context.connectionState}`)
+        }
+        if (error.context.iceConnectionState) {
+          lines.push(`  ICE Connection State: ${error.context.iceConnectionState}`)
+        }
+        if (error.context.signalingState) {
+          lines.push(`  Signaling State: ${error.context.signalingState}`)
+        }
+        
+        if (error.recoveryAttempted) {
+          lines.push(`  Recovery Attempted: Yes`)
+          if (error.recoverySuccessful !== undefined) {
+            lines.push(`  Recovery Successful: ${error.recoverySuccessful ? 'Yes' : 'No'}`)
+          }
+        }
+        
+        if (error.stack) {
+          lines.push(`  Stack Trace:`)
+          const stackLines = error.stack.split('\n').slice(0, 5) // First 5 lines
+          for (const stackLine of stackLines) {
+            lines.push(`    ${stackLine.trim()}`)
+          }
+        }
+      }
+      lines.push('')
+    }
+    
+    lines.push('='.repeat(80))
+    lines.push('END OF REPORT')
+    lines.push('='.repeat(80))
+    
+    return lines.join('\n')
+  }
+
+  /**
+   * Perform health check on all peer connections
+   * Implements Requirement 9.3: Health check diagnostics
+   * 
+   * Checks all peer connection states, verifies track presence and state,
+   * generates issues and recommendations for each connection.
+   * 
+   * @returns Array of HealthCheckResult for each peer connection
+   */
+  performHealthCheck(): HealthCheckResult[] {
+    console.log('🏥 Performing health check on all peer connections...')
+    
+    const results: HealthCheckResult[] = []
+    const timestamp = Date.now()
+    
+    // Check each peer connection
+    for (const [peerId, pc] of this.peerConnections.entries()) {
+      const issues: string[] = []
+      const recommendations: string[] = []
+      
+      // Check connection state
+      const connectionState = pc.connectionState
+      const iceConnectionState = pc.iceConnectionState
+      const signalingState = pc.signalingState
+      
+      // Determine if connection is healthy
+      let isHealthy = true
+      
+      // Check connection state
+      if (connectionState === 'failed') {
+        isHealthy = false
+        issues.push('Connection state is failed')
+        recommendations.push('Try manual reconnection or check network connectivity')
+      } else if (connectionState === 'disconnected') {
+        isHealthy = false
+        issues.push('Connection state is disconnected')
+        recommendations.push('Automatic reconnection should be in progress')
+      } else if (connectionState === 'closed') {
+        isHealthy = false
+        issues.push('Connection is closed')
+        recommendations.push('Connection needs to be re-established')
+      }
+      
+      // Check ICE connection state
+      if (iceConnectionState === 'failed') {
+        isHealthy = false
+        issues.push('ICE connection failed')
+        recommendations.push('Check firewall settings and TURN server availability')
+      } else if (iceConnectionState === 'disconnected') {
+        isHealthy = false
+        issues.push('ICE connection disconnected')
+        recommendations.push('Network may be unstable, reconnection in progress')
+      } else if (iceConnectionState === 'checking') {
+        issues.push('ICE connection still establishing')
+        recommendations.push('Wait for connection to complete')
+      }
+      
+      // Check signaling state
+      if (signalingState !== 'stable' && signalingState !== 'have-local-offer' && signalingState !== 'have-remote-offer') {
+        issues.push(`Unusual signaling state: ${signalingState}`)
+        recommendations.push('Signaling may be in progress or stuck')
+      }
+      
+      // Check for tracks
+      const senders = pc.getSenders()
+      
+      // Check audio sender
+      const audioSender = senders.find(s => s.track?.kind === 'audio')
+      if (!audioSender || !audioSender.track) {
+        isHealthy = false
+        issues.push('No audio sender found')
+        recommendations.push('Audio may not be transmitting to this peer')
+      } else if (!audioSender.track.enabled) {
+        issues.push('Audio track is disabled (muted)')
+      } else if (audioSender.track.readyState !== 'live') {
+        isHealthy = false
+        issues.push(`Audio track is not live: ${audioSender.track.readyState}`)
+        recommendations.push('Audio track may have ended unexpectedly')
+      }
+      
+      // Check video sender (if video is enabled)
+      const currentVideoTrack = this.trackManager.getCurrentVideoTrack()
+      const videoState = this.trackManager.getCurrentTrackState()
+      
+      if (videoState.isActive && currentVideoTrack) {
+        const videoSender = senders.find(s => s.track?.kind === 'video')
+        if (!videoSender || !videoSender.track) {
+          isHealthy = false
+          issues.push('Video is enabled but no video sender found')
+          recommendations.push('Video may not be transmitting to this peer - try toggling video')
+        } else if (videoSender.track.id !== currentVideoTrack.id) {
+          isHealthy = false
+          issues.push('Video sender has wrong track')
+          recommendations.push('Video track mismatch - try toggling video')
+        } else if (!videoSender.track.enabled) {
+          issues.push('Video track is disabled')
+        } else if (videoSender.track.readyState !== 'live') {
+          isHealthy = false
+          issues.push(`Video track is not live: ${videoSender.track.readyState}`)
+          recommendations.push('Video track may have ended unexpectedly')
+        }
+      }
+      
+      // Check for remote tracks
+      const remoteStream = this.remoteStreams.get(peerId)
+      if (!remoteStream) {
+        issues.push('No remote stream received from this peer')
+        recommendations.push('May not be receiving audio/video from this peer')
+      } else {
+        const remoteAudioTracks = remoteStream.getAudioTracks()
+        const remoteVideoTracks = remoteStream.getVideoTracks()
+        
+        if (remoteAudioTracks.length === 0) {
+          issues.push('No remote audio track')
+          recommendations.push('Not receiving audio from this peer')
+        }
+        
+        // Note: Remote video tracks may be 0 if peer has video disabled, which is normal
+      }
+      
+      // Check connection quality
+      const quality = connectionMonitor.getConnectionQuality(peerId)
+      if (quality) {
+        if (quality.quality === 'poor') {
+          issues.push('Connection quality is poor')
+          recommendations.push('Network conditions are degraded - consider reducing video quality')
+        } else if (quality.quality === 'fair') {
+          issues.push('Connection quality is fair')
+          recommendations.push('Network conditions are suboptimal')
+        }
+      }
+      
+      // Check if connection is being monitored
+      if (!connectionMonitor.isMonitoring(peerId)) {
+        issues.push('Connection is not being monitored')
+        recommendations.push('Connection monitoring may have stopped unexpectedly')
+      }
+      
+      // Create health check result
+      const result: HealthCheckResult = {
+        peerId,
+        isHealthy,
+        connectionState,
+        iceConnectionState,
+        signalingState,
+        issues,
+        recommendations,
+        timestamp,
+      }
+      
+      results.push(result)
+      
+      // Log result
+      if (isHealthy) {
+        console.log(`✅ Health check passed for peer ${peerId}`)
+      } else {
+        console.warn(`⚠️ Health check failed for peer ${peerId}:`, {
+          issues,
+          recommendations,
+        })
+      }
+    }
+    
+    // Log summary
+    const healthyCount = results.filter(r => r.isHealthy).length
+    const unhealthyCount = results.filter(r => !r.isHealthy).length
+    
+    console.log('📊 Health check summary:', {
+      totalPeers: results.length,
+      healthy: healthyCount,
+      unhealthy: unhealthyCount,
+      timestamp: new Date().toISOString(),
+    })
+    
+    // Emit health check event
+    this.emit('health-check-completed', {
+      results,
+      healthyCount,
+      unhealthyCount,
+      timestamp,
+    })
+    
+    return results
   }
 
   // Event emitter

@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 
+	"github.com/nexus/backend/internal/config"
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/handlers"
 	"github.com/nexus/backend/internal/middleware"
@@ -33,14 +34,14 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// Conectar ao Cassandra
-	cassandraHosts := []string{os.Getenv("CASS_HOSTS")}
-	cassandraKeyspace := os.Getenv("CASS_KEYSPACE")
-	if cassandraKeyspace == "" {
-		cassandraKeyspace = "nexus"
+	// Validate and load environment configuration
+	envConfig, err := config.InitializeEnvironment(logger)
+	if err != nil {
+		logger.Fatal("Environment configuration validation failed", zap.Error(err))
 	}
 
-	db, err := database.NewCassandraDB(cassandraHosts, cassandraKeyspace)
+	// Conectar ao Cassandra
+	db, err := database.NewCassandraDB(envConfig.CassandraHosts, envConfig.CassandraKeyspace)
 	if err != nil {
 		logger.Fatal("failed to connect to Cassandra", zap.Error(err))
 	}
@@ -51,18 +52,13 @@ func main() {
 		logger.Error("failed to initialize keyspace", zap.Error(err))
 	}
 
-	logger.Info("Connected to Cassandra", zap.Strings("hosts", cassandraHosts))
+	logger.Info("Connected to Cassandra", zap.Strings("hosts", envConfig.CassandraHosts))
 
 	// Setup CORS middleware
 	corsConfig := middleware.NewCORSConfig(logger)
 
 	// Setup handlers
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "your-secret-key-here"
-	}
-
-	authHandler := handlers.NewAuthHandler(logger, jwtSecret, db)
+	authHandler := handlers.NewAuthHandler(logger, envConfig.JWTSecret, db)
 	healthHandler := handlers.NewHealthHandler(logger)
 	channelHandler := handlers.NewChannelHandler(logger, db)
 	messageHandler := handlers.NewMessageHandler(logger, db)
@@ -265,19 +261,14 @@ func main() {
 	})))
 
 	// Iniciar servidor HTTP
-	port := os.Getenv("API_PORT")
-	if port == "" {
-		port = "8000"
-	}
-
 	server := &http.Server{
-		Addr:         ":" + port,
+		Addr:         ":" + envConfig.APIPort,
 		Handler:      corsConfig.Middleware(mux), // Aplicar CORS middleware global
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
 
-	logger.Info("API server starting", zap.String("port", port))
+	logger.Info("API server starting", zap.String("port", envConfig.APIPort))
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

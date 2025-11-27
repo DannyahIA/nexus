@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/nexus/backend/internal/cache"
+	"github.com/nexus/backend/internal/config"
 	"github.com/nexus/backend/internal/middleware"
 )
 
@@ -150,11 +151,12 @@ func (ws *WebSocketServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := &Claims{}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "your-secret-key-change-this"
+	}
+	
 	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
-		jwtSecret := os.Getenv("JWT_SECRET")
-		if jwtSecret == "" {
-			jwtSecret = "your-secret-key-change-this"
-		}
 		return []byte(jwtSecret), nil
 	})
 
@@ -643,6 +645,12 @@ func main() {
 	}
 	defer logger.Sync()
 
+	// Validate and load environment configuration
+	envConfig, err := config.InitializeEnvironment(logger)
+	if err != nil {
+		logger.Fatal("Environment configuration validation failed", zap.Error(err))
+	}
+
 	// Setup CORS configuration
 	corsConfig := middleware.NewCORSConfig(logger)
 
@@ -680,18 +688,13 @@ func main() {
 	}
 
 	// Conectar ao NATS
-	natsURL := os.Getenv("NATS_URL")
-	if natsURL == "" {
-		natsURL = "nats://127.0.0.1:4222"
-	}
-
-	nc, err := nats.Connect(natsURL)
+	nc, err := nats.Connect(envConfig.NatsURL)
 	if err != nil {
 		logger.Fatal("failed to connect to NATS", zap.Error(err))
 	}
 	defer nc.Close()
 
-	logger.Info("Connected to NATS", zap.String("url", natsURL))
+	logger.Info("Connected to NATS", zap.String("url", envConfig.NatsURL))
 
 	// Criar servidor WebSocket
 	wsServer := NewWebSocketServer(nc, logger)
@@ -703,19 +706,14 @@ func main() {
 	go wsServer.Run()
 
 	// Iniciar servidor HTTP
-	port := os.Getenv("WS_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
 	server := &http.Server{
-		Addr:         ":" + port,
+		Addr:         ":" + envConfig.WSPort,
 		Handler:      http.DefaultServeMux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
 
-	logger.Info("WebSocket server starting", zap.String("port", port))
+	logger.Info("WebSocket server starting", zap.String("port", envConfig.WSPort))
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

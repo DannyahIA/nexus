@@ -324,6 +324,65 @@ Response: 200 OK
 
 Use the `token` in the `Authorization: Bearer <token>` header for authenticated requests.
 
+## 🎥 WebRTC Voice & Video
+
+### Features
+
+Nexus includes a robust WebRTC implementation with enterprise-grade stability features:
+
+- **Automatic Reconnection**: Exponential backoff reconnection on connection failures
+- **State Synchronization**: Ensures video/audio state consistency across all peers
+- **Background Mode**: Maintains connections when browser tab is not in focus
+- **TURN Fallback**: Automatically falls back to TURN relay when P2P fails
+- **Health Monitoring**: Real-time connection quality monitoring and diagnostics
+- **Error Recovery**: Comprehensive error handling with automatic recovery
+- **Connection Quality**: Visual indicators for connection quality
+- **Diagnostic Tools**: Built-in health checks and diagnostic reporting
+
+### Configuration
+
+WebRTC requires proper configuration for reliable connections:
+
+```bash
+# Frontend (.env)
+VITE_TURN_URL=turn:your-turn-server.com:3478
+VITE_TURN_USERNAME=username
+VITE_TURN_PASSWORD=password
+
+# Backend (.env)
+TURN_URL=turn:your-turn-server.com:3478
+TURN_USER=username
+TURN_PASS=password
+```
+
+**Note**: TURN server is highly recommended for production. Without it, connections may fail behind NAT/firewalls.
+
+### Troubleshooting WebRTC
+
+#### Camera Not Activating
+- Check browser permissions for camera/microphone
+- Ensure no other application is using the camera
+- Try refreshing the page
+- Check browser console for specific error messages
+
+#### Connection Failures
+- Verify TURN server is configured and accessible
+- Check firewall settings
+- Ensure WebSocket connection is stable
+- Use the built-in health check to diagnose issues
+
+#### Video State Inconsistencies
+- The system automatically synchronizes state across peers
+- If issues persist, try leaving and rejoining the channel
+- Check the diagnostic report for detailed information
+
+#### Background Mode Issues
+- Ensure browser supports Page Visibility API (all modern browsers)
+- Check browser settings for background tab throttling
+- Some browsers may limit background media on mobile
+
+For more details, see [WebRTC Troubleshooting Guide](#webrtc-troubleshooting-guide).
+
 ## 🌐 WebSocket API
 
 ### Connection
@@ -520,6 +579,204 @@ git push origin feature/awesome-feature
 - `test:` Adding tests
 - `chore:` Maintenance tasks
 
+## 🔧 WebRTC Troubleshooting Guide
+
+### Common Issues and Solutions
+
+#### 1. Camera/Microphone Not Working
+
+**Symptoms:**
+- Camera doesn't activate when joining voice channel
+- "Permission denied" errors
+- Black video tile
+
+**Solutions:**
+1. **Check Browser Permissions**
+   - Click the lock icon in the address bar
+   - Ensure camera and microphone are allowed
+   - Reload the page after granting permissions
+
+2. **Check Device Availability**
+   - Ensure no other application is using the camera
+   - Try closing other browser tabs using media
+   - Restart the browser if needed
+
+3. **Verify Device Selection**
+   - Check browser settings for default devices
+   - Try selecting a different camera/microphone
+   - Test devices in browser settings first
+
+#### 2. Connection Failures
+
+**Symptoms:**
+- "Connection failed" errors
+- Unable to see/hear other users
+- Frequent disconnections
+
+**Solutions:**
+1. **Verify TURN Configuration**
+   ```bash
+   # Check frontend .env
+   VITE_TURN_URL=turn:your-server.com:3478
+   VITE_TURN_USERNAME=username
+   VITE_TURN_PASSWORD=password
+   ```
+   - Ensure TURN server is running and accessible
+   - Test TURN server connectivity: `telnet your-server.com 3478`
+
+2. **Check Network/Firewall**
+   - Ensure UDP ports are not blocked
+   - Check corporate firewall settings
+   - Try from a different network to isolate the issue
+
+3. **WebSocket Connection**
+   - Verify WebSocket is connected (check browser console)
+   - Ensure backend WebSocket server is running
+   - Check for CORS issues in network tab
+
+4. **Use Diagnostic Tools**
+   - Open browser console and look for WebRTC errors
+   - Use the built-in health check feature
+   - Export diagnostic report for detailed analysis
+
+#### 3. Video State Inconsistencies
+
+**Symptoms:**
+- Video appears enabled but not transmitting
+- Other users can't see your video
+- Video toggle doesn't work
+
+**Solutions:**
+1. **Automatic Synchronization**
+   - The system automatically detects and fixes state inconsistencies
+   - Wait a few seconds for automatic synchronization
+
+2. **Manual Recovery**
+   - Toggle video off and on again
+   - Leave and rejoin the voice channel
+   - Refresh the page as a last resort
+
+3. **Check Logs**
+   - Open browser console
+   - Look for "state synchronization" messages
+   - Check for sender/receiver errors
+
+#### 4. Background Mode Issues
+
+**Symptoms:**
+- Connection drops when switching tabs
+- Audio/video stops in background
+- Reconnection when returning to tab
+
+**Solutions:**
+1. **Browser Support**
+   - Ensure you're using a modern browser (Chrome 88+, Firefox 85+, Safari 14+)
+   - Update browser to the latest version
+
+2. **Browser Settings**
+   - Check for aggressive power saving settings
+   - Disable "background tab throttling" if available
+   - On mobile, ensure app has background permissions
+
+3. **Expected Behavior**
+   - Audio should continue in background
+   - Video should continue if enabled
+   - No reconnection should occur when returning to tab
+
+#### 5. Poor Connection Quality
+
+**Symptoms:**
+- Choppy audio/video
+- High latency
+- Frequent freezing
+
+**Solutions:**
+1. **Check Network Quality**
+   - Run a speed test
+   - Ensure stable internet connection
+   - Close bandwidth-heavy applications
+
+2. **Connection Quality Indicator**
+   - Check the connection quality indicator in the UI
+   - Green = Good, Yellow = Fair, Red = Poor
+   - Poor quality triggers automatic adaptation
+
+3. **TURN vs P2P**
+   - P2P connections are faster but may fail behind NAT
+   - TURN relay is slower but more reliable
+   - System automatically falls back to TURN when needed
+
+#### 6. Reconnection Issues
+
+**Symptoms:**
+- Frequent reconnection attempts
+- "Reconnecting..." messages
+- Unable to reconnect after disconnect
+
+**Solutions:**
+1. **Automatic Reconnection**
+   - System uses exponential backoff (1s, 2s, 4s delays)
+   - Maximum 3 automatic attempts
+   - Check browser console for reconnection logs
+
+2. **Manual Reconnection**
+   - Leave and rejoin the voice channel
+   - Refresh the page
+   - Check WebSocket connection status
+
+3. **Persistent Issues**
+   - Check backend server logs
+   - Verify backend services are running
+   - Check database connectivity
+
+### Diagnostic Tools
+
+#### Health Check
+Access the health check feature to diagnose connection issues:
+1. Open browser developer console
+2. Run: `webrtcService.performHealthCheck()`
+3. Review the diagnostic information
+
+#### Diagnostic Report
+Export a detailed diagnostic report:
+1. Open browser developer console
+2. Run: `webrtcService.exportDiagnosticReport()`
+3. Share the report with support for analysis
+
+#### Connection Statistics
+View real-time connection statistics:
+1. Check the connection quality indicator in the UI
+2. Open browser console for detailed metrics
+3. Look for ICE candidate types and connection states
+
+### Browser Compatibility
+
+| Browser | Version | Support | Notes              |
+|---------|---------|---------|--------------------|
+| Chrome  |   88+   | ✅ Full | Recommended        |
+| Firefox |   85+   | ✅ Full | Recommended        |
+| Safari  |   14+   | ✅ Full | Some quirks on iOS |
+| Edge    |   88+   | ✅ Full | Chromium-based     |
+| Opera   |   74+   | ✅ Full | Chromium-based     |
+
+### Getting Help
+
+If you continue to experience issues:
+
+1. **Check Browser Console**
+   - Open Developer Tools (F12)
+   - Look for errors in Console tab
+   - Check Network tab for failed requests
+
+2. **Export Diagnostic Report**
+   - Use the diagnostic tools mentioned above
+   - Include the report when reporting issues
+
+3. **Report Issues**
+   - GitHub Issues: Include diagnostic report and browser info
+   - Email Support: contato@eclipsiasoftware.com
+   - Include steps to reproduce the issue
+
 ## 📄 License
 
 MIT © 2025 Nexus
@@ -602,6 +859,18 @@ MIT © 2025 Nexus
 - [x] Enable/disable video
 - [x] Screen sharing support
 - [x] STUN server integration
+- [x] **WebRTC Stability Improvements**
+  - [x] Automatic reconnection with exponential backoff
+  - [x] State synchronization across peers
+  - [x] Background mode support (Page Visibility API)
+  - [x] TURN fallback for NAT traversal
+  - [x] Connection health monitoring
+  - [x] Comprehensive error handling and recovery
+  - [x] Video state consistency management
+  - [x] Cleanup on disconnect
+  - [x] WebSocket reconnection handling
+  - [x] Connection quality indicators
+  - [x] Diagnostic reporting and health checks
 
 #### Friends & Direct Messages
 - [x] Friend request system
@@ -626,18 +895,14 @@ MIT © 2025 Nexus
 ### 🚧 In Progress
 
 #### Voice & Video
-- [ ] Voice channels UI
-- [ ] Voice calling (1-on-1)
-- [ ] Group voice calls
-- [ ] Video calling (1-on-1)
-- [ ] Group video calls
+- [ ] Voice channels UI improvements
 - [ ] WebRTC SFU implementation with Pion
-- [ ] TURN server integration (coturn)
 - [ ] Audio/video quality controls
 - [ ] Push-to-talk
-- [ ] Voice activity detection
 - [ ] Noise suppression
 - [ ] Echo cancellation
+- [ ] Adaptive bitrate streaming
+- [ ] Simulcast support
 
 #### Task Management (Kanban)
 - [ ] Task board visualization

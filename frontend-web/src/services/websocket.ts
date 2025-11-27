@@ -63,7 +63,8 @@ export class WebSocketService {
       this.ws = new WebSocket(`${WS_URL}/ws?token=${token}&username=${user.username}`)
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected')
+        const wasReconnecting = this.reconnectAttempts > 0
+        console.log('WebSocket connected', wasReconnecting ? '(reconnected)' : '(initial connection)')
         this.reconnectAttempts = 0
         this.isConnecting = false
         
@@ -74,6 +75,15 @@ export class WebSocketService {
         this.subscribedChannels.forEach(channelId => {
           this.subscribeToChannel(channelId)
         })
+        
+        // Emit reconnection event if this was a reconnection
+        if (wasReconnecting) {
+          console.log('🔄 WebSocket reconnected, emitting reconnection event')
+          this.emit('websocket:reconnected', {
+            timestamp: new Date().toISOString(),
+            subscribedChannels: Array.from(this.subscribedChannels),
+          })
+        }
       }
 
       this.ws.onmessage = (event) => {

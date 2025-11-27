@@ -31,7 +31,7 @@ export function validateEnvironmentConfig(): ValidationResult {
     try {
       new URL(apiUrl)
     } catch {
-      errors.push(`VITE_API_URL is not a valid URL: ${apiUrl}`)
+      errors.push(`VITE_API_URL is not a valid URL: ${apiUrl}. Please set it to a valid HTTP/HTTPS URL (e.g., http://localhost:8000)`)
     }
   }
 

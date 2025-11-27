@@ -76,6 +76,13 @@ export class ConnectionMonitor {
   }
 
   /**
+   * Check if a user is being monitored
+   */
+  isMonitoring(userId: string): boolean {
+    return this.connections.has(userId)
+  }
+
+  /**
    * Get current connection quality for a user
    */
   getConnectionQuality(userId: string): ConnectionQuality | null {
