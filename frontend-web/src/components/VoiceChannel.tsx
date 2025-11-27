@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Volume2, Settings, Grid, User, Activity } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Settings, Grid, User, Activity } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
 import { useAuthStore } from '../store/authStore'
 import { useVoiceStore } from '../store/voiceStore'
@@ -13,7 +13,7 @@ interface VoiceChannelProps {
   onLeave: () => void
 }
 
-export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceChannelProps) {
+export default function VoiceChannel({ channelId, channelName: _channelName, onLeave }: VoiceChannelProps) {
   const user = useAuthStore((state) => state.user)
   const voiceStore = useVoiceStore()
   const [isConnected, setIsConnected] = useState(false)
@@ -302,17 +302,6 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
 
   return (
     <div className="flex-1 flex flex-col bg-dark-900">
-      {/* Header */}
-      <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4">
-        <Volume2 className="w-5 h-5 text-green-500 mr-3" />
-        <h2 className="font-semibold">{channelName}</h2>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-sm text-dark-400">
-            {voiceStore.voiceUsers.length + 1} {voiceStore.voiceUsers.length === 0 ? 'pessoa' : 'pessoas'}
-          </span>
-        </div>
-      </div>
-
       {/* Video Grid - Using new VideoGrid component */}
       <VideoGrid
         localStream={localStream}

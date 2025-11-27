@@ -8,7 +8,7 @@ import { useVoiceStore } from '../store/voiceStore'
 import { wsService } from '../services/websocket'
 import { webrtcService } from '../services/webrtc'
 import { api } from '../services/api'
-import { Send, Hash, Users, UserPlus, Phone, PhoneOff, Volume2 } from 'lucide-react'
+import { Send, Hash, Users, Volume2 } from 'lucide-react'
 import MessageList from '../components/MessageList'
 import ServerInviteModal from '../components/ServerInviteModal'
 import VoiceChannel from '../components/VoiceChannel'
@@ -18,7 +18,7 @@ export default function ChatScreen() {
   const { channelId, serverId } = useParams()
   const [message, setMessage] = useState('')
   const [showInviteModal, setShowInviteModal] = useState(false)
-  const [joiningVoice, setJoiningVoice] = useState(false)
+  const [_joiningVoice, setJoiningVoice] = useState(false)
   const typingTimeoutRef = useRef<number | null>(null)
   
   // Voice state
@@ -329,47 +329,6 @@ export default function ChatScreen() {
                   <p className="text-xs text-dark-400">{currentChannel.description}</p>
                 ) : null}
               </div>
-            </div>
-
-            {/* Botões de ação */}
-            <div className="flex items-center gap-2">
-              {/* Botão de Voice (apenas em servidores) */}
-              {!isDM && currentServer && (
-                <button
-                  onClick={isInVoiceThisChannel ? handleLeaveVoice : handleJoinVoice}
-                  disabled={joiningVoice || (isConnected && !isInVoiceThisChannel)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                    isInVoiceThisChannel
-                      ? 'bg-green-600 hover:bg-green-700'
-                      : 'bg-dark-700 hover:bg-dark-600'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  title={isInVoiceThisChannel ? 'Sair do Voice' : 'Entrar no Voice'}
-                >
-                  {isInVoiceThisChannel ? (
-                    <>
-                      <PhoneOff className="w-4 h-4" />
-                      Em Voz
-                    </>
-                  ) : (
-                    <>
-                      <Phone className="w-4 h-4" />
-                      {joiningVoice ? 'Conectando...' : 'Voice'}
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Botão de Convite (apenas em servidores) */}
-              {!isDM && currentServer && (
-                <button
-                  onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 rounded text-sm font-medium transition-colors"
-                  title="Convidar Pessoas"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Convidar
-                </button>
-              )}
             </div>
           </>
         )}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { X, Copy, Check, Edit2, Camera } from 'lucide-react'
 
@@ -7,7 +8,9 @@ interface UserProfileModalProps {
 }
 
 export default function UserProfileModal({ onClose }: UserProfileModalProps) {
+  const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
   const [copied, setCopied] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [displayName, setDisplayName] = useState(user?.displayName || user?.username || '')
@@ -183,10 +186,13 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
 
           {/* Botões de Ação */}
           <div className="mt-4 space-y-2">
-            <button className="w-full px-4 py-2 bg-dark-700 hover:bg-dark-600 rounded-lg transition-colors text-left">
-              Switch Account
-            </button>
-            <button className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-left">
+            <button 
+              onClick={() => {
+                logout()
+                navigate('/login')
+              }}
+              className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-left font-medium"
+            >
               Logout
             </button>
           </div>

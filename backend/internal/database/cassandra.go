@@ -212,45 +212,117 @@ func (db *CassandraDB) CreateUser(userID, email, username, passwordHash string) 
 
 // GetUserByEmail retorna um usuário pelo email (usando índice secundário)
 func (db *CassandraDB) GetUserByEmail(email string) (map[string]interface{}, error) {
-	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE email = ? ALLOW FILTERING`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, email).MapScan(row)
+	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE email = ? ALLOW FILTERING`
+	
+	var userID gocql.UUID
+	var userEmail, username, discriminator, displayName, passwordHash, avatarURL, bio string
+	var createdAt time.Time
+	
+	err := db.session.Query(query, email).Scan(&userID, &userEmail, &username, &discriminator, &displayName, &passwordHash, &avatarURL, &bio, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+	
+	row := map[string]interface{}{
+		"user_id":       userID.String(),
+		"email":         userEmail,
+		"username":      username,
+		"discriminator": discriminator,
+		"display_name":  displayName,
+		"password_hash": passwordHash,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+	
 	return row, nil
 }
 
 // GetUserByUsername retorna um usuário pelo username (usando índice secundário)
 func (db *CassandraDB) GetUserByUsername(username string) (map[string]interface{}, error) {
-	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE username = ? ALLOW FILTERING`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, username).MapScan(row)
+	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE username = ? ALLOW FILTERING`
+	
+	var userID gocql.UUID
+	var userEmail, uname, discriminator, displayName, passwordHash, avatarURL, bio string
+	var createdAt time.Time
+	
+	err := db.session.Query(query, username).Scan(&userID, &userEmail, &uname, &discriminator, &displayName, &passwordHash, &avatarURL, &bio, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+	
+	row := map[string]interface{}{
+		"user_id":       userID.String(),
+		"email":         userEmail,
+		"username":      uname,
+		"discriminator": discriminator,
+		"display_name":  displayName,
+		"password_hash": passwordHash,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+	
 	return row, nil
 }
 
 // GetUserByUsernameAndDiscriminator retorna um usuário específico pelo username e discriminador
 func (db *CassandraDB) GetUserByUsernameAndDiscriminator(username, discriminator string) (map[string]interface{}, error) {
 	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE username = ? AND discriminator = ? ALLOW FILTERING`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, username, discriminator).MapScan(row)
+	
+	var userID gocql.UUID
+	var userEmail, uname, disc, displayName, passwordHash, avatarURL, bio string
+	var createdAt time.Time
+	
+	err := db.session.Query(query, username, discriminator).Scan(&userID, &userEmail, &uname, &disc, &displayName, &passwordHash, &avatarURL, &bio, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+	
+	row := map[string]interface{}{
+		"user_id":       userID.String(),
+		"email":         userEmail,
+		"username":      uname,
+		"discriminator": disc,
+		"display_name":  displayName,
+		"password_hash": passwordHash,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+	
 	return row, nil
 }
 
 // GetUserByID retorna um usuário pelo ID
 func (db *CassandraDB) GetUserByID(userID string) (map[string]interface{}, error) {
-	query := `SELECT user_id, email, username, avatar_url, created_at FROM nexus.users WHERE user_id = ?`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, userID).MapScan(row)
+	query := `SELECT user_id, email, username, discriminator, display_name, avatar_url, bio, created_at FROM nexus.users WHERE user_id = ?`
+	
+	userUUID, err := gocql.ParseUUID(userID)
 	if err != nil {
 		return nil, err
 	}
+	
+	var uid gocql.UUID
+	var userEmail, username, discriminator, displayName, avatarURL, bio string
+	var createdAt time.Time
+	
+	err = db.session.Query(query, userUUID).Scan(&uid, &userEmail, &username, &discriminator, &displayName, &avatarURL, &bio, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	
+	row := map[string]interface{}{
+		"user_id":       uid.String(),
+		"email":         userEmail,
+		"username":      username,
+		"discriminator": discriminator,
+		"display_name":  displayName,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+	
 	return row, nil
 }
 

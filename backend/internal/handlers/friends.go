@@ -3,8 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/gocql/gocql"
 	"github.com/gofrs/uuid"
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/models"
@@ -80,22 +82,48 @@ func (fh *FriendHandler) SendFriendRequest(w http.ResponseWriter, r *http.Reques
 	var err error
 	
 	// Verificar se tem discriminador (#)
-	if len(req.Username) > 0 && req.Username[len(req.Username)-5] == '#' {
+	if strings.Contains(req.Username, "#") {
 		// Formato: username#1234
-		username := req.Username[:len(req.Username)-5]
-		discriminator := req.Username[len(req.Username)-4:]
+		parts := strings.Split(req.Username, "#")
+		if len(parts) != 2 {
+			http.Error(w, "invalid username format. Use: username#1234", http.StatusBadRequest)
+			return
+		}
+		username := parts[0]
+		discriminator := parts[1]
+		
+		fh.logger.Info("searching user with discriminator",
+			zap.String("username", username),
+			zap.String("discriminator", discriminator))
+		
 		targetUser, err = fh.db.GetUserByUsernameAndDiscriminator(username, discriminator)
 	} else {
 		// Apenas username - buscar qualquer usuário com esse username
+		fh.logger.Info("searching user without discriminator",
+			zap.String("username", req.Username))
 		targetUser, err = fh.db.GetUserByUsername(req.Username)
 	}
 	
 	if err != nil {
+		fh.logger.Error("user not found", 
+			zap.String("username", req.Username),
+			zap.Error(err))
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
 
-	targetUserID := targetUser["user_id"].(string)
+	// Converter user_id para string (pode vir como gocql.UUID ou string)
+	var targetUserID string
+	switch v := targetUser["user_id"].(type) {
+	case string:
+		targetUserID = v
+	case gocql.UUID:
+		targetUserID = v.String()
+	default:
+		fh.logger.Error("invalid user_id type", zap.Any("type", v))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	// Não pode adicionar a si mesmo
 	if targetUserID == claims.UserID {
@@ -151,18 +179,62 @@ func (fh *FriendHandler) GetFriendRequests(w http.ResponseWriter, r *http.Reques
 
 	requests := make([]FriendRequestResponse, 0)
 	for _, row := range rows {
-		fromUserID := row["from_user_id"].(string)
+		// Converter from_user_id (pode ser gocql.UUID ou string)
+		var fromUserID string
+		switch v := row["from_user_id"].(type) {
+		case string:
+			fromUserID = v
+		case gocql.UUID:
+			fromUserID = v.String()
+		default:
+			fh.logger.Error("invalid from_user_id type", zap.Any("type", v))
+			continue
+		}
 
 		// Buscar informações do usuário remetente
-		user, _ := fh.db.GetUserByID(fromUserID)
+		user, err := fh.db.GetUserByID(fromUserID)
 		username := "Unknown"
-		if user != nil {
-			username = user["username"].(string)
+		displayName := "Unknown"
+		discriminator := ""
+		
+		if err != nil {
+			fh.logger.Error("failed to get user info for friend request", 
+				zap.String("fromUserId", fromUserID),
+				zap.Error(err))
+		} else if user != nil {
+			if u, ok := user["username"].(string); ok {
+				username = u
+			}
+			if d, ok := user["display_name"].(string); ok && d != "" {
+				displayName = d
+			} else {
+				displayName = username
+			}
+			if disc, ok := user["discriminator"].(string); ok {
+				discriminator = disc
+			}
+			
+			fh.logger.Info("loaded friend request user info",
+				zap.String("username", username),
+				zap.String("discriminator", discriminator),
+				zap.String("displayName", displayName))
+		}
+
+		// Converter to_user_id
+		var toUserID string
+		switch v := row["to_user_id"].(type) {
+		case string:
+			toUserID = v
+		case gocql.UUID:
+			toUserID = v.String()
+		default:
+			fh.logger.Error("invalid to_user_id type", zap.Any("type", v))
+			continue
 		}
 
 		req := FriendRequestResponse{
 			FromUserID: fromUserID,
-			ToUserID:   row["to_user_id"].(string),
+			ToUserID:   toUserID,
 			Username:   username,
 			Status:     row["status"].(string),
 			CreatedAt:  row["created_at"].(time.Time).UnixMilli(),
