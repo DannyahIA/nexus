@@ -34,12 +34,12 @@ type SendFriendRequestRequest struct {
 
 // FriendRequestResponse representa uma solicitação de amizade
 type FriendRequestResponse struct {
-	FromUserID string `json:"fromUserId"`
-	ToUserID   string `json:"toUserId"`
-	Username   string `json:"username"`
-	Avatar     string `json:"avatar,omitempty"`
-	Status     string `json:"status"`
-	CreatedAt  int64  `json:"createdAt"`
+	FromUserID   string `json:"fromUserId"`
+	ToUserID     string `json:"toUserId"`
+	FromUsername string `json:"fromUsername"` // username do remetente
+	Avatar       string `json:"avatar,omitempty"`
+	Status       string `json:"status"`
+	CreatedAt    int64  `json:"createdAt"`
 }
 
 // FriendResponse representa um amigo
@@ -233,11 +233,11 @@ func (fh *FriendHandler) GetFriendRequests(w http.ResponseWriter, r *http.Reques
 		}
 
 		req := FriendRequestResponse{
-			FromUserID: fromUserID,
-			ToUserID:   toUserID,
-			Username:   username,
-			Status:     row["status"].(string),
-			CreatedAt:  row["created_at"].(time.Time).UnixMilli(),
+			FromUserID:   fromUserID,
+			ToUserID:     toUserID,
+			FromUsername: username,
+			Status:       row["status"].(string),
+			CreatedAt:    row["created_at"].(time.Time).UnixMilli(),
 		}
 
 		requests = append(requests, req)
@@ -344,51 +344,90 @@ func (fh *FriendHandler) GetFriends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implementar sistema de amigos completo
-	// Por enquanto retorna lista vazia para não quebrar o frontend
 	friends := make([]FriendResponse, 0)
 
-	// Código comentado até implementar tabelas de amigos
-	/*
-		rows, err := fh.db.GetFriends(claims.UserID)
-		if err != nil {
-			fh.logger.Error("failed to get friends", zap.Error(err))
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
+	rows, err := fh.db.GetFriends(claims.UserID)
+	if err != nil {
+		fh.logger.Error("failed to get friends", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, row := range rows {
+		// Extrair friend_id
+		var friendID string
+		switch v := row["friend_id"].(type) {
+		case string:
+			friendID = v
+		case gocql.UUID:
+			friendID = v.String()
+		default:
+			fh.logger.Error("invalid friend_id type", zap.Any("type", v))
+			continue
 		}
 
-		for _, row := range rows {
-			friendID := row["friend_id"].(string)
-
-			// Buscar informações do amigo
-			user, _ := fh.db.GetUserByID(friendID)
-			username := "Unknown"
-			if user != nil {
-				username = user["username"].(string)
+		// Buscar informações do amigo
+		user, err := fh.db.GetUserByID(friendID)
+		username := "Unknown"
+		discriminator := ""
+		displayName := "Unknown"
+		
+		if err == nil && user != nil {
+			if u, ok := user["username"].(string); ok {
+				username = u
 			}
-
-			// Buscar presença
-			presence, _ := fh.db.GetUserPresence(friendID)
-			status := "offline"
-			if presence != nil {
-				status = presence["status"].(string)
+			if d, ok := user["discriminator"].(string); ok {
+				discriminator = d
 			}
-
-			friend := FriendResponse{
-				UserID:      friendID,
-				Username:    username,
-				DMChannelID: row["dm_channel_id"].(string),
-				Status:      status,
-				AddedAt:     row["added_at"].(time.Time).UnixMilli(),
+			if dn, ok := user["display_name"].(string); ok && dn != "" {
+				displayName = dn
+			} else {
+				displayName = username
 			}
-
-			if nickname, ok := row["nickname"].(string); ok && nickname != "" {
-				friend.Nickname = nickname
-			}
-
-			friends = append(friends, friend)
 		}
-	*/
+
+		// Buscar presença
+		presence, _ := fh.db.GetUserPresence(friendID)
+		status := "offline"
+		if presence != nil {
+			if s, ok := presence["status"].(string); ok {
+				status = s
+			}
+		}
+
+		// Extrair dm_channel_id
+		var dmChannelID string
+		if dmCh, ok := row["dm_channel_id"]; ok && dmCh != nil {
+			switch v := dmCh.(type) {
+			case string:
+				dmChannelID = v
+			case gocql.UUID:
+				dmChannelID = v.String()
+			}
+		}
+
+		// Extrair added_at
+		var addedAt int64
+		if at, ok := row["added_at"].(time.Time); ok {
+			addedAt = at.UnixMilli()
+		}
+
+		friend := FriendResponse{
+			UserID:        friendID,
+			Username:      username,
+			Discriminator: discriminator,
+			DisplayName:   displayName,
+			DMChannelID:   dmChannelID,
+			Status:        status,
+			AddedAt:       addedAt,
+		}
+
+		if nickname, ok := row["nickname"].(string); ok && nickname != "" {
+			friend.Nickname = nickname
+		}
+
+		friends = append(friends, friend)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(friends)

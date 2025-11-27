@@ -112,11 +112,11 @@ export const api = {
   sendFriendRequest: (username: string) =>
     apiClient.post('/api/friends', { username }),
   
-  acceptFriendRequest: (requestId: string) =>
-    apiClient.post(`/api/friends/accept/${requestId}`),
+  acceptFriendRequest: (fromUserId: string) =>
+    apiClient.post(`/api/friends/accept/?fromUserId=${fromUserId}`),
   
-  rejectFriendRequest: (requestId: string) =>
-    apiClient.post(`/api/friends/reject/${requestId}`),
+  rejectFriendRequest: (fromUserId: string) =>
+    apiClient.post(`/api/friends/reject/?fromUserId=${fromUserId}`),
   
   removeFriend: (userId: string) =>
     apiClient.delete(`/api/friends/${userId}`),
