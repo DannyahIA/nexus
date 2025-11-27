@@ -142,30 +142,132 @@ export default function VideoGrid({
   }, [viewMode, currentUserId, voiceUsers])
 
   /**
-   * Render gallery mode layout with priority-based display
+   * Render gallery mode layout with priority-based display (Google Meet style)
    * Priority: screen share > camera > voice only
-   * Users with video (camera/screen) appear in main grid
-   * Voice-only users appear in sidebar
+   * 
+   * Layout logic:
+   * - If screen share: Large screen share + horizontal strip of other users at bottom
+   * - If only cameras: Grid layout with all users
+   * - Voice-only users: Small tiles at bottom
    */
   const renderGalleryMode = () => {
-    // Separate users by video capability
-    const videoUsers = usersWithVideo.filter(u => u.hasVideo)
+    // Separate users by capability
+    const screenShareUser = usersWithVideo.find(u => u.isScreenSharing)
+    const videoUsers = usersWithVideo.filter(u => u.hasVideo && !u.isScreenSharing)
     const voiceOnlyUsers = usersWithVideo.filter(u => !u.hasVideo)
+    
+    // Google Meet style: Screen share takes priority
+    if (screenShareUser) {
+      // For bottom strip: Show all users with cameras (excluding screen share itself)
+      // If local user is sharing screen, we still want to show their camera if available
+      const cameraUsers = usersWithVideo.filter(u => !u.isScreenSharing)
+      const allVoiceOnly = voiceOnlyUsers
+      
+      // Add all users to bottom strip
+      const bottomStripUsers = [...cameraUsers, ...allVoiceOnly]
+      
+      return (
+        <div className="flex-1 flex flex-col overflow-hidden bg-dark-900">
+          {/* Main screen share area - ONLY shows the screen share */}
+          <div className="flex-1 flex items-center justify-center p-4 min-h-0">
+            {screenShareUser.isLocal ? (
+              <VideoTile
+                key={`screen-${screenShareUser.userId}`}
+                userId={currentUserId}
+                username={currentUsername}
+                stream={localStream}
+                isLocal={true}
+                isMuted={isLocalMuted}
+                isVideoEnabled={true}
+                isSpeaking={isLocalSpeaking}
+                isScreenSharing={true}
+                connectionQuality={null}
+                size="large"
+                showControls={true}
+              />
+            ) : (
+              <VideoTile
+                key={`screen-${screenShareUser.userId}`}
+                userId={screenShareUser.userId}
+                username={screenShareUser.username}
+                stream={remoteStreams.get(screenShareUser.userId) || null}
+                isLocal={false}
+                isMuted={voiceUsers.find(v => v.userId === screenShareUser.userId)?.isMuted || false}
+                isVideoEnabled={true}
+                isSpeaking={voiceUsers.find(v => v.userId === screenShareUser.userId)?.isSpeaking || false}
+                isScreenSharing={true}
+                connectionQuality={connectionQualities.get(screenShareUser.userId) || null}
+                size="large"
+                showControls={true}
+              />
+            )}
+          </div>
+          
+          {/* Bottom strip with ALL participants including screen sharer's camera (Google Meet style) */}
+          {bottomStripUsers.length > 0 && (
+            <div className="h-32 flex items-center gap-2 px-4 pb-4 overflow-x-auto">
+              {bottomStripUsers.map(user => {
+                if (user.isLocal) {
+                  return (
+                    <div key={user.userId} className="flex-shrink-0 w-40 h-28">
+                      <VideoTile
+                        userId={currentUserId}
+                        username={currentUsername}
+                        stream={localStream}
+                        isLocal={true}
+                        isMuted={isLocalMuted}
+                        isVideoEnabled={isLocalVideoEnabled}
+                        isSpeaking={isLocalSpeaking}
+                        isScreenSharing={false}
+                        connectionQuality={null}
+                        size="small"
+                        showControls={false}
+                      />
+                    </div>
+                  )
+                }
 
-    // Calculate grid columns based on video users count
-    const videoGridColumns = calculateGridColumns(videoUsers.length)
+                const voiceUser = voiceUsers.find(v => v.userId === user.userId)
+                if (!voiceUser) return null
+
+                return (
+                  <div key={user.userId} className="flex-shrink-0 w-40 h-28">
+                    <VideoTile
+                      userId={voiceUser.userId}
+                      username={voiceUser.username}
+                      stream={remoteStreams.get(voiceUser.userId) || null}
+                      isLocal={false}
+                      isMuted={voiceUser.isMuted}
+                      isVideoEnabled={voiceUser.isVideoEnabled}
+                      isSpeaking={voiceUser.isSpeaking}
+                      isScreenSharing={false}
+                      connectionQuality={connectionQualities.get(voiceUser.userId) || null}
+                      size="small"
+                      showControls={false}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // No screen share: Regular grid layout
+    const allUsers = [...videoUsers, ...voiceOnlyUsers]
+    const gridColumns = calculateGridColumns(allUsers.length)
 
     return (
-      <div className="flex-1 flex overflow-hidden">
-        {/* Main grid for users with video */}
+      <div className="flex-1 flex overflow-hidden bg-dark-900">
         <div
-          className={`flex-1 video-grid-gallery ${voiceOnlyUsers.length > 0 ? 'pr-2' : ''}`}
+          className="flex-1 video-grid-gallery"
           style={{
-            gridTemplateColumns: `repeat(${videoGridColumns}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
             gridAutoRows: 'minmax(0, 1fr)',
           }}
         >
-          {videoUsers.map(user => {
+          {allUsers.map(user => {
             if (user.isLocal) {
               return (
                 <VideoTile
@@ -177,7 +279,7 @@ export default function VideoGrid({
                   isMuted={isLocalMuted}
                   isVideoEnabled={isLocalVideoEnabled}
                   isSpeaking={isLocalSpeaking}
-                  isScreenSharing={isLocalScreenSharing}
+                  isScreenSharing={false}
                   connectionQuality={null}
                   size="medium"
                   showControls={true}
@@ -198,7 +300,7 @@ export default function VideoGrid({
                 isMuted={voiceUser.isMuted}
                 isVideoEnabled={voiceUser.isVideoEnabled}
                 isSpeaking={voiceUser.isSpeaking}
-                isScreenSharing={screenShareUserId === voiceUser.userId}
+                isScreenSharing={false}
                 connectionQuality={connectionQualities.get(voiceUser.userId) || null}
                 size="medium"
                 showControls={true}
@@ -206,52 +308,6 @@ export default function VideoGrid({
             )
           })}
         </div>
-
-        {/* Sidebar for voice-only users */}
-        {voiceOnlyUsers.length > 0 && (
-          <div className="w-48 flex flex-col gap-2 overflow-y-auto bg-dark-800 p-2 rounded-lg">
-            {voiceOnlyUsers.map(user => {
-              if (user.isLocal) {
-                return (
-                  <VideoTile
-                    key={user.userId}
-                    userId={currentUserId}
-                    username={currentUsername}
-                    stream={localStream}
-                    isLocal={true}
-                    isMuted={isLocalMuted}
-                    isVideoEnabled={false}
-                    isSpeaking={isLocalSpeaking}
-                    isScreenSharing={false}
-                    connectionQuality={null}
-                    size="small"
-                    showControls={false}
-                  />
-                )
-              }
-
-              const voiceUser = voiceUsers.find(v => v.userId === user.userId)
-              if (!voiceUser) return null
-
-              return (
-                <VideoTile
-                  key={user.userId}
-                  userId={voiceUser.userId}
-                  username={voiceUser.username}
-                  stream={remoteStreams.get(voiceUser.userId) || null}
-                  isLocal={false}
-                  isMuted={voiceUser.isMuted}
-                  isVideoEnabled={false}
-                  isSpeaking={voiceUser.isSpeaking}
-                  isScreenSharing={false}
-                  connectionQuality={connectionQualities.get(voiceUser.userId) || null}
-                  size="small"
-                  showControls={false}
-                />
-              )
-            })}
-          </div>
-        )}
       </div>
     )
   }

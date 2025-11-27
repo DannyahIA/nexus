@@ -161,7 +161,7 @@ export default function ChatScreen() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!message.trim() || !channelId) {
+    if (!message.trim() || !channelId || message.length > 2000) {
       console.log('Cannot send message:', { message: message.trim(), channelId })
       return
     }
@@ -298,13 +298,6 @@ export default function ChatScreen() {
                     : currentChannel.type === 'dm' 
                     ? 'bg-blue-500' 
                     : 'bg-primary-500'
-                }`} />
-                <ChannelIcon className={`w-5 h-5 ${
-                  currentChannel.type === 'voice' 
-                    ? 'text-green-500' 
-                    : currentChannel.type === 'dm' 
-                    ? 'text-blue-500' 
-                    : 'text-dark-400'
                 }`} />
               </div>
               {/* Avatar para DM */}
@@ -465,7 +458,7 @@ export default function ChatScreen() {
               }
             }}
             placeholder={`Message ${channelName}`}
-            maxLength={2000}
+            maxLength={8000}
             className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent resize-none overflow-y-auto min-h-[48px] max-h-[120px]"
             style={{ height: '48px' }}
           />
@@ -478,10 +471,11 @@ export default function ChatScreen() {
           </button>
         </form>
         <div className="flex justify-between items-center text-xs text-dark-500 mt-2">
-          <span>Pressione Enter para enviar, Shift+Enter para quebrar linha</span>
-          <span className={`${message.length > 1800 ? 'text-yellow-500' : ''} ${message.length >= 2000 ? 'text-red-500' : ''}`}>
-            {message.length}/2000
-          </span>
+          {message.length > 1800 && message && (
+            <span className={`${message.length >= 2000 ? 'text-red-500' : message.length > 1800 ? 'text-yellow-500' : ''} ${message.length >= 2000 ? 'text-red-500' : ''}`}>
+              {message.length}/2000
+            </span>
+          )}
         </div>
       </div>
       )}
