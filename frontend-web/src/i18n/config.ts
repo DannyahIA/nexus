@@ -34,4 +34,11 @@ i18n
     debug: import.meta.env.DEV,
   })
 
+// Listen for language changes to update date-fns locale
+i18n.on('languageChanged', (lng) => {
+  console.log('Language changed to:', lng)
+  // The dateFormatter will automatically use the new locale
+  // by calling getDateLocale(i18n.language) on each format call
+})
+
 export default i18n

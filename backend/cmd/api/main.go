@@ -65,6 +65,7 @@ func main() {
 	taskHandler := handlers.NewTaskHandler(logger, db)
 	serverHandler := handlers.NewServerHandler(logger, db)
 	friendHandler := handlers.NewFriendHandler(logger, db)
+	imageHandler := handlers.NewImageHandler(logger, db, "./uploads")
 
 	// Setup rotas HTTP
 	mux := http.NewServeMux()
@@ -262,6 +263,13 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})))
+
+	// Rotas de imagens
+	// Upload de avatar de usuário (protegida)
+	mux.Handle("/api/users/avatar", authHandler.AuthMiddleware(http.HandlerFunc(imageHandler.UploadUserAvatar)))
+
+	// Servir imagens (pública)
+	mux.HandleFunc("/api/images/", imageHandler.ServeImage)
 
 	// Iniciar servidor HTTP
 	server := &http.Server{

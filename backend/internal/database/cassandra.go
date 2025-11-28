@@ -664,3 +664,15 @@ func (db *CassandraDB) DeleteTask(channelID, taskID string, position int) error 
 
 	return db.session.Query(query, channelUUID, position, taskUUID).Exec()
 }
+
+// UpdateUserAvatar atualiza a URL do avatar de um usuário
+func (db *CassandraDB) UpdateUserAvatar(userID, avatarURL string) error {
+	query := `UPDATE nexus.users SET avatar_url = ?, updated_at = ? WHERE user_id = ?`
+
+	userUUID, err := gocql.ParseUUID(userID)
+	if err != nil {
+		return err
+	}
+
+	return db.session.Query(query, avatarURL, time.Now(), userUUID).Exec()
+}

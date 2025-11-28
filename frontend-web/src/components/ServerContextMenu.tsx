@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Settings, Trash2, Plus, Hash } from 'lucide-react'
 import { api } from '../services/api'
 import ServerInviteModal from './ServerInviteModal'
@@ -22,6 +23,7 @@ export default function ServerContextMenu({
   onClose,
   onUpdate,
 }: ServerContextMenuProps) {
+  const { t } = useTranslation('chat')
   const [showRename, setShowRename] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [newName, setNewName] = useState(server.name)
@@ -48,7 +50,7 @@ export default function ServerContextMenu({
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Tem certeza que deseja excluir o servidor "${server.name}"? Esta ação não pode ser desfeita.`)) {
+    if (!confirm(t('deleteServerConfirm', { serverName: server.name }))) {
       return
     }
 
@@ -73,12 +75,12 @@ export default function ServerContextMenu({
         <form onSubmit={handleRename} className="space-y-3">
           <div className="flex items-center gap-2 mb-3">
             <Settings className="w-4 h-4 text-dark-400" />
-            <h3 className="font-medium">Configurações do Servidor</h3>
+            <h3 className="font-medium">{t('serverSettings')}</h3>
           </div>
           
           <div>
             <label className="block text-xs font-medium text-dark-400 mb-2">
-              NOME DO SERVIDOR
+              {t('serverNameLabel')}
             </label>
             <input
               type="text"
@@ -95,7 +97,7 @@ export default function ServerContextMenu({
 
           <div>
             <label className="block text-xs font-medium text-dark-400 mb-2">
-              DESCRIÇÃO DO SERVIDOR
+              {t('serverDescriptionLabel')}
             </label>
             <textarea
               value={newDescription}
@@ -103,7 +105,7 @@ export default function ServerContextMenu({
               className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-primary-600 resize-none"
               maxLength={500}
               rows={3}
-              placeholder="Descreva seu servidor..."
+              placeholder={t('serverDescriptionPlaceholder')}
             />
             <div className="text-xs text-dark-500 mt-1">
               {newDescription.length}/500
@@ -116,14 +118,14 @@ export default function ServerContextMenu({
               onClick={() => setShowRename(false)}
               className="px-4 py-2 bg-dark-700 hover:bg-dark-600 rounded text-sm transition-colors"
             >
-              Cancelar
+              {t('cancel')}
             </button>
             <button
               type="submit"
               disabled={loading || !newName.trim()}
               className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded text-sm transition-colors"
             >
-              {loading ? 'Salvando...' : 'Salvar Alterações'}
+              {loading ? t('saving') : t('saveChanges')}
             </button>
           </div>
         </form>
@@ -141,7 +143,7 @@ export default function ServerContextMenu({
         className="w-full px-4 py-2 text-left hover:bg-dark-800 flex items-center gap-3 text-sm"
       >
         <Settings className="w-4 h-4" />
-        Configurações do Servidor
+        {t('serverSettings')}
       </button>
       
       <button
@@ -152,7 +154,7 @@ export default function ServerContextMenu({
         className="w-full px-4 py-2 text-left hover:bg-dark-800 flex items-center gap-3 text-sm"
       >
         <Plus className="w-4 h-4" />
-        Convidar Pessoas
+        {t('invitePeople')}
       </button>
       
       {/* Modal de Convite */}
@@ -168,7 +170,7 @@ export default function ServerContextMenu({
         className="w-full px-4 py-2 text-left hover:bg-dark-800 flex items-center gap-3 text-sm"
       >
         <Hash className="w-4 h-4" />
-        Criar Canal
+        {t('createChannelMenu')}
       </button>
       
       <div className="h-px bg-dark-700 my-1" />
@@ -179,7 +181,7 @@ export default function ServerContextMenu({
         className="w-full px-4 py-2 text-left hover:bg-red-600/20 text-red-400 flex items-center gap-3 text-sm disabled:opacity-50"
       >
         <Trash2 className="w-4 h-4" />
-        {loading ? 'Excluindo...' : 'Excluir Servidor'}
+        {loading ? t('deleting') : t('delete')}
       </button>
     </div>
   )

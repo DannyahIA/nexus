@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { List, ListImperativeAPI } from 'react-window'
 import AutoSizer from 'react-virtualized-auto-sizer'
 import { Loader2 } from 'lucide-react'
+import { formatMessageTime, formatDateSeparator } from '../i18n/dateFormatter'
 
 interface Message {
   id: string
@@ -78,20 +79,7 @@ export default function VirtualizedMessageList({
   }, [messages.length])
 
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
-    
-    if (isToday) {
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    } else {
-      return date.toLocaleDateString('pt-BR', { 
-        day: '2-digit', 
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }
+    return formatMessageTime(timestamp)
   }
 
   const shouldShowDateSeparator = (index: number) => {
@@ -121,11 +109,7 @@ export default function VirtualizedMessageList({
           <div className="flex items-center justify-center my-4">
             <div className="flex-1 h-px bg-dark-700"></div>
             <span className="px-4 text-xs text-dark-400">
-              {new Date(message.timestamp).toLocaleDateString('pt-BR', {
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric',
-              })}
+              {formatDateSeparator(message.timestamp)}
             </span>
             <div className="flex-1 h-px bg-dark-700"></div>
           </div>

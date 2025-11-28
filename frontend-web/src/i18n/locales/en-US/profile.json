@@ -10,5 +10,12 @@
   "online": "Online",
   "offline": "Offline",
   "away": "Away",
-  "dnd": "Do not disturb"
+  "dnd": "Do not disturb",
+  "idle": "Idle",
+  "copyUsername": "Copy username",
+  "bioPlaceholder": "Tell us about yourself...",
+  "bioCharacterCount": "{{count}}/190",
+  "displayNamePlaceholder": "Your display name",
+  "logout": "Logout",
+  "doNotDisturb": "Do Not Disturb"
 }

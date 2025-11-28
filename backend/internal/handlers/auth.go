@@ -52,6 +52,8 @@ type AuthResponse struct {
 		Username      string `json:"username"`
 		Discriminator string `json:"discriminator"`
 		DisplayName   string `json:"displayName"`
+		Avatar        string `json:"avatar,omitempty"`
+		Bio           string `json:"bio,omitempty"`
 	} `json:"user"`
 }
 
@@ -103,6 +105,8 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	username, _ := user["username"].(string)
 	discriminator, _ := user["discriminator"].(string)
 	displayName, _ := user["display_name"].(string)
+	avatarURL, _ := user["avatar_url"].(string)
+	bio, _ := user["bio"].(string)
 	
 	ah.logger.Info("user logged in", 
 		zap.String("email", req.Email),
@@ -139,6 +143,8 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	response.User.Username = claims.Username
 	response.User.Discriminator = claims.Discriminator
 	response.User.DisplayName = claims.DisplayName
+	response.User.Avatar = avatarURL
+	response.User.Bio = bio
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -218,6 +224,8 @@ func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	response.User.Username = claims.Username
 	response.User.Discriminator = claims.Discriminator
 	response.User.DisplayName = claims.DisplayName
+	response.User.Avatar = ""
+	response.User.Bio = ""
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

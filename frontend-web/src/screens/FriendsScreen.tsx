@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useFriendsStore, Friend, FriendRequest } from '../store/friendsStore'
 import { api } from '../services/api'
 import { UserPlus, MessageCircle, UserMinus, Check, X, Users, Inbox } from 'lucide-react'
+import { formatDate } from '../i18n/dateFormatter'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked'
 
 export default function FriendsScreen() {
+  const { t } = useTranslation('friends')
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('online')
   const [addFriendInput, setAddFriendInput] = useState('')
@@ -31,7 +34,7 @@ export default function FriendsScreen() {
       const response = await api.getFriends()
       setFriends(response.data)
     } catch (error) {
-      console.error('Failed to load friends:', error)
+      console.error(t('errors.failedToLoad'), error)
     }
   }
 
@@ -40,7 +43,7 @@ export default function FriendsScreen() {
       const response = await api.getFriendRequests()
       setFriendRequests(response.data)
     } catch (error) {
-      console.error('Failed to load friend requests:', error)
+      console.error(t('errors.failedToLoadRequests'), error)
     }
   }
 
@@ -53,10 +56,10 @@ export default function FriendsScreen() {
 
     try {
       await api.sendFriendRequest(addFriendInput.trim())
-      setSuccess(`Friend request sent to ${addFriendInput}`)
+      setSuccess(t('addFriend.requestSent', { username: addFriendInput }))
       setAddFriendInput('')
     } catch (error: any) {
-      setError(error.response?.data || 'Failed to send friend request')
+      setError(error.response?.data || t('addFriend.failedToSend'))
     } finally {
       setLoading(false)
     }
@@ -67,10 +70,10 @@ export default function FriendsScreen() {
       await api.acceptFriendRequest(request.fromUserId)
       removeFriendRequest(request.id)
       loadFriends()
-      setSuccess(`You are now friends with ${request.fromUsername}`)
+      setSuccess(t('success.nowFriends', { username: request.fromUsername }))
     } catch (error) {
-      console.error('Failed to accept friend request:', error)
-      setError('Failed to accept friend request')
+      console.error(t('errors.failedToAccept'), error)
+      setError(t('errors.failedToAccept'))
     }
   }
 
@@ -79,18 +82,18 @@ export default function FriendsScreen() {
       await api.rejectFriendRequest(request.fromUserId)
       removeFriendRequest(request.id)
     } catch (error) {
-      console.error('Failed to reject friend request:', error)
+      console.error(t('errors.failedToReject'), error)
     }
   }
 
   const handleRemoveFriend = async (friend: Friend) => {
-    if (!confirm(`Remove ${friend.username} from friends?`)) return
+    if (!confirm(t('confirmations.removeFriend', { username: friend.username }))) return
 
     try {
       await api.removeFriend(friend.userId)
       removeFriend(friend.userId)
     } catch (error) {
-      console.error('Failed to remove friend:', error)
+      console.error(t('errors.failedToRemove'), error)
     }
   }
 
@@ -107,7 +110,7 @@ export default function FriendsScreen() {
       const channelId = response.data.channelId
       navigate(`/chat/${channelId}`)
     } catch (error) {
-      console.error('Failed to open DM:', error)
+      console.error(t('errors.failedToOpenDM'), error)
     }
   }
 
@@ -135,7 +138,7 @@ export default function FriendsScreen() {
       {/* Header */}
       <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4">
         <Users className="w-5 h-5 mr-3 text-dark-400" />
-        <h2 className="font-semibold text-lg">Friends</h2>
+        <h2 className="font-semibold text-lg">{t('title')}</h2>
       </div>
 
       {/* Tabs */}
@@ -148,7 +151,7 @@ export default function FriendsScreen() {
               : 'text-dark-300 hover:bg-dark-700 hover:text-white'
           }`}
         >
-          Online
+          {t('tabs.online')}
         </button>
         <button
           onClick={() => setActiveTab('all')}
@@ -158,7 +161,7 @@ export default function FriendsScreen() {
               : 'text-dark-300 hover:bg-dark-700 hover:text-white'
           }`}
         >
-          All
+          {t('tabs.all')}
         </button>
         <button
           onClick={() => setActiveTab('pending')}
@@ -168,7 +171,7 @@ export default function FriendsScreen() {
               : 'text-dark-300 hover:bg-dark-700 hover:text-white'
           }`}
         >
-          Pending
+          {t('tabs.pending')}
           {friendRequests.length > 0 && (
             <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
               {friendRequests.length}
@@ -183,7 +186,7 @@ export default function FriendsScreen() {
               : 'text-dark-300 hover:bg-dark-700 hover:text-white'
           }`}
         >
-          Blocked
+          {t('tabs.blocked')}
         </button>
 
         <div className="flex-1" />
@@ -192,7 +195,7 @@ export default function FriendsScreen() {
           onClick={() => navigate('/chat')}
           className="px-4 py-1.5 bg-primary-600 hover:bg-primary-700 rounded transition-colors"
         >
-          Back to Chat
+          {t('actions.backToChat')}
         </button>
       </div>
 
@@ -203,7 +206,7 @@ export default function FriendsScreen() {
           <div className="mb-6 bg-dark-800 rounded-lg p-4">
             <h3 className="font-semibold mb-3 flex items-center gap-2">
               <UserPlus className="w-4 h-4" />
-              Add Friend
+              {t('addFriend.title')}
             </h3>
             <div className="flex gap-2">
               <input
@@ -211,7 +214,7 @@ export default function FriendsScreen() {
                 value={addFriendInput}
                 onChange={(e) => setAddFriendInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddFriend()}
-                placeholder="Enter username (e.g. dannyah or dannyah#1234)"
+                placeholder={t('addFriend.placeholder')}
                 className="flex-1 px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
               />
               <button
@@ -219,7 +222,7 @@ export default function FriendsScreen() {
                 disabled={loading || !addFriendInput.trim()}
                 className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:text-dark-500 rounded-lg transition-colors"
               >
-                {loading ? 'Sending...' : 'Send Request'}
+                {loading ? t('addFriend.sending') : t('addFriend.sendRequest')}
               </button>
             </div>
             {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
@@ -232,12 +235,12 @@ export default function FriendsScreen() {
           <div>
             <h3 className="font-semibold mb-4 flex items-center gap-2">
               <Inbox className="w-4 h-4" />
-              Pending Requests ({friendRequests.length})
+              {t('sections.pendingCount', { count: friendRequests.length })}
             </h3>
             {friendRequests.length === 0 ? (
               <div className="text-center py-12 text-dark-400">
                 <Inbox className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>No pending friend requests</p>
+                <p>{t('empty.noPendingRequests')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -253,7 +256,7 @@ export default function FriendsScreen() {
                       <div>
                         <p className="font-medium">{request.fromUsername}</p>
                         <p className="text-sm text-dark-400">
-                          {new Date(request.createdAt).toLocaleDateString()}
+                          {formatDate(request.createdAt)}
                         </p>
                       </div>
                     </div>
@@ -261,14 +264,14 @@ export default function FriendsScreen() {
                       <button
                         onClick={() => handleAcceptRequest(request)}
                         className="p-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-                        title="Accept"
+                        title={t('actions.accept')}
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleRejectRequest(request)}
                         className="p-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                        title="Reject"
+                        title={t('actions.reject')}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -284,12 +287,15 @@ export default function FriendsScreen() {
         {activeTab !== 'pending' && activeTab !== 'blocked' && (
           <div>
             <h3 className="font-semibold mb-4">
-              {activeTab === 'online' ? 'Online' : 'All Friends'} ({filteredFriends.length})
+              {activeTab === 'online' 
+                ? t('sections.onlineCount', { count: filteredFriends.length })
+                : t('sections.allCount', { count: filteredFriends.length })
+              }
             </h3>
             {filteredFriends.length === 0 ? (
               <div className="text-center py-12 text-dark-400">
                 <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>No friends {activeTab === 'online' ? 'online' : 'yet'}</p>
+                <p>{activeTab === 'online' ? t('empty.noOnlineFriends') : t('empty.noFriends')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -320,14 +326,14 @@ export default function FriendsScreen() {
                       <button
                         onClick={() => handleOpenDM(friend)}
                         className="p-2 bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
-                        title="Message"
+                        title={t('actions.sendMessage')}
                       >
                         <MessageCircle className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleRemoveFriend(friend)}
                         className="p-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                        title="Remove Friend"
+                        title={t('actions.removeFriend')}
                       >
                         <UserMinus className="w-4 h-4" />
                       </button>
@@ -343,7 +349,7 @@ export default function FriendsScreen() {
         {activeTab === 'blocked' && (
           <div className="text-center py-12 text-dark-400">
             <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No blocked users</p>
+            <p>{t('empty.noBlockedUsers')}</p>
           </div>
         )}
       </div>

@@ -1,0 +1,21 @@
+{
+  "tasksBoard": "Quadro de Tarefas",
+  "newTask": "Nova Tarefa",
+  "createNewTask": "Criar Nova Tarefa",
+  "title": "Título",
+  "description": "Descrição",
+  "priority": "Prioridade",
+  "taskTitle": "Título da tarefa",
+  "taskDescription": "Descrição da tarefa",
+  "create": "Criar",
+  "chat": "Chat",
+  "logout": "Sair",
+  "todo": "A Fazer",
+  "inProgress": "Em Progresso",
+  "done": "Concluído",
+  "low": "Baixa",
+  "medium": "Média",
+  "high": "Alta",
+  "back": "Voltar",
+  "next": "Próximo"
+}

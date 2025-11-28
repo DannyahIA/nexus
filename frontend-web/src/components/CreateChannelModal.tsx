@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X, Hash, Volume2 } from 'lucide-react'
 
 interface CreateChannelModalProps {
@@ -12,6 +13,7 @@ export default function CreateChannelModal({
   onClose,
   onCreate,
 }: CreateChannelModalProps) {
+  const { t } = useTranslation('chat')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState('text')
@@ -32,8 +34,8 @@ export default function CreateChannelModal({
   }
 
   const channelTypes = [
-    { id: 'text', label: 'Text', icon: Hash, description: 'Send messages, images, and files' },
-    { id: 'voice', label: 'Voice', icon: Volume2, description: 'Voice chat with others' },
+    { id: 'text', label: t('textChannel'), icon: Hash, description: t('textChannelDescription') },
+    { id: 'voice', label: t('voiceChannel'), icon: Volume2, description: t('voiceChannelDescription') },
   ]
 
   return (
@@ -41,7 +43,7 @@ export default function CreateChannelModal({
       <div className="bg-dark-800 rounded-xl w-full max-w-md shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-dark-700">
-          <h2 className="text-xl font-semibold">Create Channel</h2>
+          <h2 className="text-xl font-semibold">{t('createChannelTitle')}</h2>
           <button
             onClick={onClose}
             className="p-1 hover:bg-dark-700 rounded-lg transition-colors"
@@ -55,7 +57,7 @@ export default function CreateChannelModal({
           {/* Channel Type */}
           <div>
             <label className="block text-sm font-medium text-dark-300 mb-3">
-              Channel Type
+              {t('channelType')}
             </label>
             <div className="grid grid-cols-2 gap-2">
               {channelTypes.map((channelType) => {
@@ -82,7 +84,7 @@ export default function CreateChannelModal({
           {/* Channel Name */}
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-dark-300 mb-2">
-              Channel Name *
+              {t('channelNameRequired')}
             </label>
             <input
               id="name"
@@ -90,7 +92,7 @@ export default function CreateChannelModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-4 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600"
-              placeholder="awesome-channel"
+              placeholder={t('channelPlaceholder')}
               required
             />
           </div>
@@ -98,14 +100,14 @@ export default function CreateChannelModal({
           {/* Description */}
           <div>
             <label htmlFor="description" className="block text-sm font-medium text-dark-300 mb-2">
-              Description (optional)
+              {t('channelDescription')}
             </label>
             <textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-4 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600"
-              placeholder="What's this channel about?"
+              placeholder={t('channelDescriptionPlaceholder')}
               rows={3}
             />
           </div>
@@ -117,14 +119,14 @@ export default function CreateChannelModal({
               onClick={onClose}
               className="flex-1 px-4 py-2 bg-dark-700 hover:bg-dark-600 rounded-lg transition-colors"
             >
-              Cancel
+              {t('cancel')}
             </button>
             <button
               type="submit"
               disabled={!name.trim()}
               className="flex-1 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
-              Create Channel
+              {t('createChannelButton')}
             </button>
           </div>
         </form>

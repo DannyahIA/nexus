@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Settings, Grid, User, Activity } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
 import { useAuthStore } from '../store/authStore'
@@ -14,6 +15,7 @@ interface VoiceChannelProps {
 }
 
 export default function VoiceChannel({ channelId, channelName: _channelName, onLeave }: VoiceChannelProps) {
+  const { t } = useTranslation('chat')
   const user = useAuthStore((state) => state.user)
   const voiceStore = useVoiceStore()
   const [isConnected, setIsConnected] = useState(false)
@@ -294,7 +296,7 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-dark-400">Conectando ao canal de voz...</p>
+          <p className="text-dark-400">{t('connectingToVoice')}</p>
         </div>
       </div>
     )
@@ -325,8 +327,8 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
         <button
           onClick={handleToggleMute}
           className={`control-button ${isMuted ? 'control-button-muted' : 'bg-dark-700 hover:bg-dark-600'}`}
-          title={isMuted ? 'Unmute microphone (Ctrl+D)' : 'Mute microphone (Ctrl+D)'}
-          aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          title={isMuted ? t('unmuteMicrophone') : t('muteMicrophone')}
+          aria-label={isMuted ? t('unmuteMicrophone') : t('muteMicrophone')}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
@@ -343,17 +345,17 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
             }`}
           title={
             voiceStore.videoState.type === 'screen'
-              ? 'Turn off screen share (Ctrl+E)'
+              ? t('turnOffScreenShare')
               : isVideoEnabled
-              ? 'Turn off camera (Ctrl+E)'
-              : 'Turn on camera (Ctrl+E)'
+              ? t('turnOffCamera')
+              : t('turnOnCamera')
           }
           aria-label={
             voiceStore.videoState.type === 'screen'
-              ? 'Screen sharing active'
+              ? t('screenSharingActive')
               : isVideoEnabled
-              ? 'Camera on'
-              : 'Camera off'
+              ? t('cameraOn')
+              : t('cameraOff')
           }
         >
           {voiceStore.videoState.type === 'screen' ? (
@@ -375,13 +377,13 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
           className={`control-button ${isScreenSharing ? 'control-button-screen-sharing' : 'bg-dark-700 hover:bg-dark-600'}`}
           title={
             isScreenSharing 
-              ? 'Stop sharing screen' 
-              : 'Share your screen'
+              ? t('stopSharingScreen')
+              : t('shareYourScreen')
           }
           aria-label={
             isScreenSharing 
-              ? 'Stop screen sharing' 
-              : 'Start screen sharing'
+              ? t('stopScreenSharing')
+              : t('startScreenSharing')
           }
         >
           <Monitor className="w-5 h-5" />
@@ -398,17 +400,17 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
           className={`view-mode-toggle ${voiceStore.viewMode === 'spotlight' && !isScreenSharing ? 'view-mode-toggle-active' : ''}`}
           title={
             isScreenSharing 
-              ? 'View mode locked during screen share'
+              ? t('viewModeLockedDuringScreenShare')
               : voiceStore.viewMode === 'gallery' 
-              ? 'Switch to Spotlight mode' 
-              : 'Switch to Gallery mode'
+              ? t('switchToSpotlightMode')
+              : t('switchToGalleryMode')
           }
           aria-label={
             isScreenSharing 
-              ? 'View mode locked'
+              ? t('viewModeLocked')
               : voiceStore.viewMode === 'gallery' 
-              ? 'Switch to Spotlight mode' 
-              : 'Switch to Gallery mode'
+              ? t('switchToSpotlightMode')
+              : t('switchToGalleryMode')
           }
         >
           {voiceStore.viewMode === 'gallery' ? (
@@ -422,8 +424,8 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
         <button
           onClick={() => setShowHealthCheck(true)}
           className="control-button bg-dark-700 hover:bg-dark-600"
-          title="Connection health check"
-          aria-label="Connection health check"
+          title={t('connectionHealthCheck')}
+          aria-label={t('connectionHealthCheck')}
         >
           <Activity className="w-5 h-5" />
         </button>
@@ -431,8 +433,8 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
         {/* Settings */}
         <button
           className="control-button bg-dark-700 hover:bg-dark-600"
-          title="Audio and video settings"
-          aria-label="Audio and video settings"
+          title={t('audioAndVideoSettings')}
+          aria-label={t('audioAndVideoSettings')}
         >
           <Settings className="w-5 h-5" />
         </button>
@@ -441,8 +443,8 @@ export default function VoiceChannel({ channelId, channelName: _channelName, onL
         <button
           onClick={handleLeave}
           className="control-button bg-red-600 hover:bg-red-700 ml-4"
-          title="Leave voice channel"
-          aria-label="Leave voice channel"
+          title={t('leaveVoiceChannel')}
+          aria-label={t('leaveVoiceChannel')}
         >
           <PhoneOff className="w-5 h-5" />
         </button>

@@ -141,7 +141,7 @@ export const api = {
   createServer: (data: { name: string; description?: string; iconUrl?: string }) =>
     apiClient.post('/api/servers', data),
   
-  updateServer: (serverId: string, data: any) =>
+  updateServer: (serverId: string, data: { name: string; description?: string; iconUrl?: string }) =>
     apiClient.patch(`/api/servers/${serverId}`, data),
   
   deleteServer: (serverId: string) =>

@@ -4,40 +4,51 @@
     "online": "Online",
     "all": "Todos",
     "pending": "Pendentes",
+    "blocked": "Bloqueados",
     "addFriend": "Adicionar Amigo"
   },
   "sections": {
-    "onlineTitle": "Online — {{count}}",
-    "allFriendsTitle": "Todos os Amigos — {{count}}",
-    "pendingRequestsTitle": "Solicitações Pendentes — {{count}}"
+    "onlineTitle": "Online",
+    "allFriendsTitle": "Todos os Amigos",
+    "pendingRequestsTitle": "Solicitações Pendentes",
+    "onlineCount": "Online ({{count}})",
+    "allCount": "Todos os Amigos ({{count}})",
+    "pendingCount": "Solicitações Pendentes ({{count}})"
   },
   "empty": {
-    "noOnlineFriends": "Não há amigos online no momento",
-    "noFriends": "Você ainda não tem amigos",
-    "noFriendsSubtext": "Que tal adicionar alguém?",
-    "noPendingRequests": "Nenhuma solicitação pendente"
+    "noOnlineFriends": "Nenhum amigo online",
+    "noFriends": "Nenhum amigo ainda",
+    "noPendingRequests": "Nenhuma solicitação de amizade pendente",
+    "noBlockedUsers": "Nenhum usuário bloqueado"
   },
   "actions": {
-    "sendMessage": "Enviar Mensagem",
+    "sendMessage": "Mensagem",
     "accept": "Aceitar",
-    "deny": "Recusar"
+    "reject": "Rejeitar",
+    "removeFriend": "Remover Amigo",
+    "backToChat": "Voltar ao Chat"
   },
   "addFriend": {
     "title": "Adicionar Amigo",
-    "description": "Você pode adicionar amigos usando o nome de usuário deles.",
-    "placeholder": "Digite o nome de usuário",
+    "placeholder": "Digite o nome de usuário (ex: dannyah ou dannyah#1234)",
     "sendRequest": "Enviar Solicitação",
     "sending": "Enviando...",
-    "requestSent": "Solicitação de amizade enviada para {{username}}!",
-    "error": "Erro ao enviar solicitação"
+    "requestSent": "Solicitação de amizade enviada para {{username}}",
+    "failedToSend": "Falha ao enviar solicitação de amizade"
   },
-  "status": {
-    "online": "online",
-    "idle": "ausente",
-    "dnd": "não perturbe",
-    "offline": "offline"
+  "confirmations": {
+    "removeFriend": "Remover {{username}} dos amigos?"
   },
-  "friendRequest": {
-    "received": "Solicitação de amizade recebida"
+  "success": {
+    "nowFriends": "Agora você é amigo de {{username}}",
+    "requestAccepted": "Solicitação de amizade aceita"
+  },
+  "errors": {
+    "failedToLoad": "Falha ao carregar amigos",
+    "failedToLoadRequests": "Falha ao carregar solicitações de amizade",
+    "failedToAccept": "Falha ao aceitar solicitação de amizade",
+    "failedToReject": "Falha ao rejeitar solicitação de amizade",
+    "failedToRemove": "Falha ao remover amigo",
+    "failedToOpenDM": "Falha ao abrir mensagem direta"
   }
 }

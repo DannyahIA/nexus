@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useChatStore } from '../store/chatStore'
 import { useServerStore } from '../store/serverStore'
 import { useFriendsStore } from '../store/friendsStore'
@@ -15,6 +16,7 @@ import VoiceChannel from '../components/VoiceChannel'
 import { useInfiniteMessages } from '../hooks/useInfiniteMessages'
 
 export default function ChatScreen() {
+  const { t } = useTranslation('chat')
   const { channelId, serverId } = useParams()
   const [message, setMessage] = useState('')
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -62,7 +64,7 @@ export default function ChatScreen() {
       // TODO: Broadcast via WebSocket para outros usuários quando o backend suportar
     } catch (error) {
       console.error('Failed to delete message:', error)
-      alert('Erro ao deletar mensagem')
+      alert(t('deleteMessageError'))
     }
   }
 
@@ -75,7 +77,7 @@ export default function ChatScreen() {
       // TODO: Broadcast via WebSocket para outros usuários quando o backend suportar
     } catch (error) {
       console.error('Failed to edit message:', error)
-      alert('Erro ao editar mensagem')
+      alert(t('editMessageError'))
     }
   }
 
@@ -195,7 +197,7 @@ export default function ChatScreen() {
     } catch (error) {
       console.error('Failed to send message:', error)
       setMessage(messageToSend) // Restaurar mensagem em caso de erro
-      alert('Erro ao enviar mensagem. Tente novamente.')
+      alert(t('sendMessageError'))
     }
   }
 
@@ -230,7 +232,7 @@ export default function ChatScreen() {
       console.log('✅ Joined voice channel')
     } catch (error) {
       console.error('Failed to join voice:', error)
-      alert('Não foi possível entrar no canal de voz. Verifique as permissões de microfone.')
+      alert(t('voiceJoinError'))
     } finally {
       setJoiningVoice(false)
     }
@@ -251,8 +253,8 @@ export default function ChatScreen() {
         : currentChannel.type === 'dm' && 'participants' in currentChannel && Array.isArray(currentChannel.participants) && currentChannel.participants.length > 0
           ? (typeof currentChannel.participants[0] === 'object' && 'username' in currentChannel.participants[0]
               ? currentChannel.participants[0].username
-              : 'Direct Message')
-          : 'Direct Message')
+              : t('directMessage'))
+          : t('directMessage'))
     : ''
 
   // Ícone do canal baseado no tipo
@@ -269,8 +271,8 @@ export default function ChatScreen() {
       <div className="flex-1 flex items-center justify-center bg-dark-800">
         <div className="text-center text-dark-400">
           <Hash className="w-16 h-16 mx-auto mb-4" />
-          <h3 className="text-xl font-medium mb-2">Selecione um canal</h3>
-          <p className="text-sm">Escolha um canal na barra lateral para começar a conversar.</p>
+          <h3 className="text-xl font-medium mb-2">{t('selectChannel')}</h3>
+          <p className="text-sm">{t('selectChannelDescription')}</p>
         </div>
       </div>
     )
@@ -323,7 +325,9 @@ export default function ChatScreen() {
               <div>
                 <h2 className="font-semibold">{channelName}</h2>
                 {isDM && otherUser && typeof otherUser === 'object' && 'status' in otherUser ? (
-                  <p className="text-xs text-dark-400 capitalize">{(otherUser as any).status || 'offline'}</p>
+                  <p className="text-xs text-dark-400 capitalize">
+                    {t((otherUser as any).status || 'offline')}
+                  </p>
                 ) : null}
                 {!isDM && 'description' in currentChannel && currentChannel.description ? (
                   <p className="text-xs text-dark-400">{currentChannel.description}</p>
@@ -364,7 +368,16 @@ export default function ChatScreen() {
               </div>
               <h2 className="text-2xl font-bold mb-2">{otherUser.username}</h2>
               <p className="text-dark-400 mb-4">
-                Este é o início da sua conversa direta com <span className="font-semibold text-white">@{otherUser.username}</span>
+                {t('dmStartMessage', { username: otherUser.username }).split('<1>').map((part, i) => {
+                  if (i === 0) return part
+                  const [username, rest] = part.split('</1>')
+                  return (
+                    <span key={i}>
+                      <span className="font-semibold text-white">{username}</span>
+                      {rest}
+                    </span>
+                  )
+                })}
               </p>
               {'status' in otherUser ? (
                 <div className="flex items-center justify-center gap-2 text-sm text-dark-400">
@@ -373,7 +386,7 @@ export default function ChatScreen() {
                     (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
                     (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
                   }`} />
-                  <span className="capitalize">{(otherUser as any).status || 'offline'}</span>
+                  <span className="capitalize">{t((otherUser as any).status || 'offline')}</span>
                 </div>
               ) : null}
             </div>
@@ -416,7 +429,7 @@ export default function ChatScreen() {
                 handleSendMessage(e as any)
               }
             }}
-            placeholder={`Message ${channelName}`}
+            placeholder={t('messagePlaceholder', { channelName })}
             maxLength={8000}
             className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent resize-none overflow-y-auto min-h-[48px] max-h-[120px]"
             style={{ height: '48px' }}
@@ -432,7 +445,7 @@ export default function ChatScreen() {
         <div className="flex justify-between items-center text-xs text-dark-500 mt-2">
           {message.length > 1800 && message && (
             <span className={`${message.length >= 2000 ? 'text-red-500' : message.length > 1800 ? 'text-yellow-500' : ''} ${message.length >= 2000 ? 'text-red-500' : ''}`}>
-              {message.length}/2000
+              {t('characterCount', { count: message.length })}
             </span>
           )}
         </div>

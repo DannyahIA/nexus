@@ -510,12 +510,13 @@ func (db *CassandraDB) GetServerChannels(serverID string) ([]map[string]interfac
 }
 
 // UpdateServer atualiza informações de um servidor
-func (db *CassandraDB) UpdateServer(serverID, name, description string) error {
-	query := `UPDATE nexus.groups SET name = ?, description = ? WHERE group_id = ?`
+func (db *CassandraDB) UpdateServer(serverID, name, description, iconURL string) error {
+	query := `UPDATE nexus.groups SET name = ?, description = ?, icon_url = ?, updated_at = ? WHERE group_id = ?`
 	
 	serverUUID, _ := gocql.ParseUUID(serverID)
+	now := time.Now()
 	
-	return db.session.Query(query, name, description, serverUUID).Exec()
+	return db.session.Query(query, name, description, iconURL, now, serverUUID).Exec()
 }
 
 // UpdateChannel atualiza informações de um canal

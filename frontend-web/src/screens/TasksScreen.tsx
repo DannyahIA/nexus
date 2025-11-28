@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useTaskStore, Task } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
 import { api } from '../services/api'
 import { Plus, Trash2, Menu, LogOut, MessageSquare } from 'lucide-react'
 
 export default function TasksScreen() {
+  const { t } = useTranslation()
   const { channelId } = useParams()
   const navigate = useNavigate()
   const [showSidebar, setShowSidebar] = useState(true)
@@ -92,6 +94,32 @@ export default function TasksScreen() {
     }
   }
 
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'todo':
+        return t('tasks.todo')
+      case 'in-progress':
+        return t('tasks.inProgress')
+      case 'done':
+        return t('tasks.done')
+      default:
+        return status
+    }
+  }
+
+  const getPriorityLabel = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return t('tasks.high')
+      case 'medium':
+        return t('tasks.medium')
+      case 'low':
+        return t('tasks.low')
+      default:
+        return priority
+    }
+  }
+
   return (
     <div className="flex h-screen bg-dark-900 text-white">
       {/* Sidebar */}
@@ -118,7 +146,7 @@ export default function TasksScreen() {
             className="w-full flex items-center gap-2 px-3 py-2 text-dark-300 hover:bg-dark-700 rounded-lg transition-colors"
           >
             <MessageSquare className="w-4 h-4" />
-            <span>Chat</span>
+            <span>{t('tasks.chat')}</span>
           </button>
         </div>
 
@@ -131,7 +159,7 @@ export default function TasksScreen() {
             className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-dark-700 rounded-lg transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            <span>Logout</span>
+            <span>{t('tasks.logout')}</span>
           </button>
         </div>
       </div>
@@ -147,14 +175,14 @@ export default function TasksScreen() {
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h2 className="font-semibold text-xl">Tasks Board</h2>
+            <h2 className="font-semibold text-xl">{t('tasks.tasksBoard')}</h2>
           </div>
           <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            New Task
+            {t('tasks.newTask')}
           </button>
         </div>
 
@@ -164,8 +192,8 @@ export default function TasksScreen() {
             {(['todo', 'in-progress', 'done'] as const).map((status) => (
               <div key={status} className="w-80 flex flex-col bg-dark-800 rounded-lg">
                 <div className="p-4 border-b border-dark-700">
-                  <h3 className="font-semibold capitalize">
-                    {status.replace('-', ' ')} ({tasksByStatus[status].length})
+                  <h3 className="font-semibold">
+                    {getStatusLabel(status)} ({tasksByStatus[status].length})
                   </h3>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -192,7 +220,7 @@ export default function TasksScreen() {
                             task.priority
                           )} text-xs px-2 py-1 rounded`}
                         >
-                          {task.priority}
+                          {getPriorityLabel(task.priority)}
                         </span>
                         <div className="flex gap-1">
                           {status !== 'todo' && (
@@ -205,7 +233,7 @@ export default function TasksScreen() {
                               }
                               className="text-xs text-dark-400 hover:text-white"
                             >
-                              ← Back
+                              ← {t('tasks.back')}
                             </button>
                           )}
                           {status !== 'done' && (
@@ -218,7 +246,7 @@ export default function TasksScreen() {
                               }
                               className="text-xs text-primary-400 hover:text-primary-300"
                             >
-                              Next →
+                              {t('tasks.next')} →
                             </button>
                           )}
                         </div>
@@ -236,32 +264,32 @@ export default function TasksScreen() {
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-dark-800 rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-xl font-semibold mb-4">Create New Task</h3>
+            <h3 className="text-xl font-semibold mb-4">{t('tasks.createNewTask')}</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-dark-300 mb-2">Title</label>
+                <label className="block text-sm font-medium text-dark-300 mb-2">{t('tasks.title')}</label>
                 <input
                   type="text"
                   value={newTask.title}
                   onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                   className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
-                  placeholder="Task title"
+                  placeholder={t('tasks.taskTitle')}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-dark-300 mb-2">
-                  Description
+                  {t('tasks.description')}
                 </label>
                 <textarea
                   value={newTask.description}
                   onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
                   className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
-                  placeholder="Task description"
+                  placeholder={t('tasks.taskDescription')}
                   rows={3}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-dark-300 mb-2">Priority</label>
+                <label className="block text-sm font-medium text-dark-300 mb-2">{t('tasks.priority')}</label>
                 <select
                   value={newTask.priority}
                   onChange={(e) =>
@@ -269,9 +297,9 @@ export default function TasksScreen() {
                   }
                   className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                 >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
+                  <option value="low">{t('tasks.low')}</option>
+                  <option value="medium">{t('tasks.medium')}</option>
+                  <option value="high">{t('tasks.high')}</option>
                 </select>
               </div>
             </div>
@@ -280,13 +308,13 @@ export default function TasksScreen() {
                 onClick={() => setShowCreateModal(false)}
                 className="flex-1 px-4 py-2 bg-dark-700 hover:bg-dark-600 rounded-lg transition-colors"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleCreateTask}
                 className="flex-1 px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
               >
-                Create
+                {t('tasks.create')}
               </button>
             </div>
           </div>

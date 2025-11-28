@@ -1,0 +1,21 @@
+{
+  "tasksBoard": "Tasks Board",
+  "newTask": "New Task",
+  "createNewTask": "Create New Task",
+  "title": "Title",
+  "description": "Description",
+  "priority": "Priority",
+  "taskTitle": "Task title",
+  "taskDescription": "Task description",
+  "create": "Create",
+  "chat": "Chat",
+  "logout": "Logout",
+  "todo": "To Do",
+  "inProgress": "In Progress",
+  "done": "Done",
+  "low": "Low",
+  "medium": "Medium",
+  "high": "High",
+  "back": "Back",
+  "next": "Next"
+}

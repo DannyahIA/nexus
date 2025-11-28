@@ -3,6 +3,7 @@ import auth from './auth.json'
 import chat from './chat.json'
 import profile from './profile.json'
 import friends from './friends.json'
+import tasks from './tasks.json'
 
 export default {
   common,
@@ -10,4 +11,5 @@ export default {
   chat,
   profile,
   friends,
+  tasks,
 }

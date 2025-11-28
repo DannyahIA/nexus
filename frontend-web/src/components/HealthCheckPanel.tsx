@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Activity, AlertCircle, CheckCircle, RefreshCw, Download, X } from 'lucide-react'
 import { webrtcService, HealthCheckResult, DiagnosticReport } from '../services/webrtc'
+import { formatTime } from '../i18n/dateFormatter'
 
 interface HealthCheckPanelProps {
   onClose?: () => void
@@ -80,7 +81,7 @@ export default function HealthCheckPanel({ onClose }: HealthCheckPanelProps) {
               <h2 className="text-xl font-semibold">Connection Health Check</h2>
               {lastCheckTime && (
                 <p className="text-sm text-dark-400">
-                  Last checked: {new Date(lastCheckTime).toLocaleTimeString()}
+                  Last checked: {formatTime(lastCheckTime)}
                 </p>
               )}
             </div>
