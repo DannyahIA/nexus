@@ -1,0 +1,198 @@
+# Ingress para expor serviços externamente
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nexus-ingress
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nexus-ingress
+    app.kubernetes.io/instance: nexus-ingress
+  annotations:
+    # NGINX Ingress Controller
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/server-snippets: |
+      location /ws {
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_http_version 1.1;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+      }
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+    
+    # Certificate management (cert-manager)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - nexus.yourdomain.com  # Substituir pelo domínio real
+    - api.nexus.yourdomain.com
+    secretName: nexus-tls
+  rules:
+  # API routes
+  - host: api.nexus.yourdomain.com  # Substituir pelo domínio real
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nexus-api
+            port:
+              number: 8000
+  
+  # WebSocket routes
+  - host: nexus.yourdomain.com  # Substituir pelo domínio real
+    http:
+      paths:
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: nexus-websocket
+            port:
+              number: 8080
+      # Frontend routes (quando implementado)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nexus-frontend  # Service do frontend
+            port:
+              number: 80
+---
+# HorizontalPodAutoscaler para API
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nexus-api-hpa
+  namespace: nexus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nexus-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+---
+# HorizontalPodAutoscaler para WebSocket
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nexus-websocket-hpa
+  namespace: nexus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nexus-websocket
+  minReplicas: 2
+  maxReplicas: 15  # WebSocket pode precisar de mais instâncias
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60  # Lower threshold for WebSocket
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 15
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30  # Faster scale up for WebSocket
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+---
+# NetworkPolicy para segurança
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nexus-network-policy
+  namespace: nexus
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfego do Ingress Controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+  # Permitir tráfego interno entre pods do nexus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: nexus
+  egress:
+  # Permitir tráfego para serviços internos
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: nexus
+  # Permitir tráfego para DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Permitir tráfego HTTPS externo
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
