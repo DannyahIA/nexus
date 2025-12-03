@@ -1,0 +1,103 @@
+# Cassandra StatefulSet - Base de dados principal
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nexus-cassandra
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/instance: nexus-cassandra
+    app.kubernetes.io/component: database
+spec:
+  serviceName: nexus-cassandra
+  replicas: 1  # Para desenvolvimento. Em produção, usar 3+ para HA
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cassandra
+      app.kubernetes.io/instance: nexus-cassandra
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cassandra
+        app.kubernetes.io/instance: nexus-cassandra
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+      - name: cassandra
+        image: cassandra:4.1
+        ports:
+        - containerPort: 9042
+          name: cql
+        - containerPort: 7000
+          name: intra-node
+        - containerPort: 7001
+          name: tls-intra-node
+        - containerPort: 7199
+          name: jmx
+        env:
+        - name: CASSANDRA_CLUSTER_NAME
+          value: "Nexus"
+        - name: CASSANDRA_DC
+          value: "dc1"
+        - name: CASSANDRA_RACK
+          value: "rack1"
+        - name: MAX_HEAP_SIZE
+          value: "2G"
+        - name: HEAP_NEWSIZE
+          value: "200M"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: cassandra-data
+          mountPath: /var/lib/cassandra
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "nodetool status"
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "cqlsh -e 'describe cluster'"
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: cassandra-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: standard  # Ajustar conforme storage class do cluster
+      resources:
+        requests:
+          storage: 20Gi
+---
+# Service para Cassandra
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-cassandra
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/instance: nexus-cassandra
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9042
+    targetPort: 9042
+    name: cql
+  selector:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/instance: nexus-cassandra
