@@ -56,6 +56,9 @@ func main() {
 
 	// Setup CORS middleware
 	corsConfig := middleware.NewCORSConfig(logger)
+	
+	// Setup Security middleware
+	securityConfig := middleware.NewSecurityConfig(logger)
 
 	// Setup handlers
 	authHandler := handlers.NewAuthHandler(logger, envConfig.JWTSecret, db)
@@ -271,10 +274,16 @@ func main() {
 	// Servir imagens (pública)
 	mux.HandleFunc("/api/images/", imageHandler.ServeImage)
 
-	// Iniciar servidor HTTP
+	// Iniciar servidor HTTP com middlewares de segurança
+	handler := securityConfig.PanicRecoveryMiddleware(
+		securityConfig.RequestLoggingMiddleware(
+			securityConfig.RateLimitMiddleware(
+				securityConfig.SecurityHeadersMiddleware(
+					corsConfig.Middleware(mux)))))
+
 	server := &http.Server{
 		Addr:         ":" + envConfig.APIPort,
-		Handler:      corsConfig.Middleware(mux), // Aplicar CORS middleware global
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
