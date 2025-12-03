@@ -61,11 +61,21 @@ func (db *CassandraDB) CreateUserWithDiscriminator(userID, email, username, disp
 		displayName = username
 	}
 	
-	query := `INSERT INTO nexus.users (user_id, email, username, discriminator, display_name, password_hash, created_at, updated_at) 
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	// Usar batch para garantir consistência entre tabelas
+	batch := db.session.NewBatch(gocql.LoggedBatch)
 	now := time.Now()
 	
-	err = db.session.Query(query, userID, email, username, discriminator, displayName, passwordHash, now, now).Exec()
+	// Inserir na tabela principal
+	batch.Query(`INSERT INTO nexus.users (user_id, email, username, discriminator, display_name, password_hash, created_at, updated_at) 
+	             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	            userID, email, username, discriminator, displayName, passwordHash, now, now)
+	
+	// Inserir na tabela de índice
+	batch.Query(`INSERT INTO nexus.users_by_username_discriminator (username, discriminator, user_id, email) 
+	             VALUES (?, ?, ?, ?)`,
+	            username, discriminator, userID, email)
+	
+	err = db.session.ExecuteBatch(batch)
 	if err != nil {
 		return "", err
 	}
