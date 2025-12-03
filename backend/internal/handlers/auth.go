@@ -10,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/models"
+	"github.com/nexus/backend/internal/validation"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -71,9 +72,19 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validar entrada
+	// Validar entrada com validation package
 	if req.Email == "" || req.Password == "" {
 		http.Error(w, "email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitizar entradas
+	req.Email = validation.SanitizeString(req.Email)
+	
+	// Validar formato do email
+	if err := validation.ValidateEmail(req.Email); err != nil {
+		ah.logger.Warn("invalid email format", zap.String("email", req.Email), zap.Error(err))
+		http.Error(w, "invalid email format", http.StatusBadRequest)
 		return
 	}
 
@@ -166,6 +177,29 @@ func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if req.Email == "" || req.Username == "" || req.Password == "" {
 		http.Error(w, "email, username and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitizar entradas
+	req.Email = validation.SanitizeString(req.Email)
+	req.Username = validation.SanitizeString(req.Username)
+
+	// Validar formatos
+	if err := validation.ValidateEmail(req.Email); err != nil {
+		ah.logger.Warn("invalid email format", zap.String("email", req.Email), zap.Error(err))
+		http.Error(w, "invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	if err := validation.ValidateUsername(req.Username); err != nil {
+		ah.logger.Warn("invalid username format", zap.String("username", req.Username), zap.Error(err))
+		http.Error(w, "invalid username format: must be 3-20 characters, alphanumeric and underscore only", http.StatusBadRequest)
+		return
+	}
+
+	if err := validation.ValidatePassword(req.Password); err != nil {
+		ah.logger.Warn("weak password", zap.String("username", req.Username), zap.Error(err))
+		http.Error(w, "password too weak: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
