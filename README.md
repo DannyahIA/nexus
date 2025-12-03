@@ -28,20 +28,28 @@
 
 ## 🆕 Recent Major Improvements
 
-### 🔒 **Security Enhancements**
+### 🎥 **WebRTC SFU Implementation** ✅ **NEW**
+- **Selective Forwarding Unit**: Scalable video conferencing server using Pion WebRTC
+- **Room-based Architecture**: Multiple concurrent rooms with automatic cleanup
+- **Real-time Signaling**: WebSocket-based offer/answer/ICE candidate exchange
+- **Multi-codec Support**: VP8, H264 (video), Opus (audio) with automatic negotiation
+- **Production Ready**: Docker containerized with UDP port mapping
+- **Auto-recovery**: Connection failure detection and automatic reconnection
+
+### 🔒 **Security Enhancements** ✅
 - **Rate Limiting**: 100 req/s with configurable limits
 - **Input Validation**: Email, username, password strength validation
 - **Security Headers**: XSS, CSRF, clickjacking protection
 - **Panic Recovery**: Graceful error handling with logging
 - **Input Sanitization**: Protection against injection attacks
 
-### 📊 **Database Optimization** 
+### 📊 **Database Optimization** ✅
 - **Connection Pooling**: Optimized Cassandra connections with timeouts
 - **Query Optimization**: Eliminated ALLOW FILTERING queries
 - **Index Strategy**: New users_by_username_discriminator table
 - **Migration Scripts**: Automated database migration tools
 
-### 🐳 **Infrastructure Modernization**
+### 🐳 **Infrastructure Modernization** ✅
 - **Multi-stage Docker Builds**: 70% smaller images with compression
 - **Kubernetes Ready**: Complete K8s manifests with auto-scaling
 - **Production Configuration**: Optimized docker-compose for production
@@ -61,17 +69,23 @@
         └──────────────────────────────────────┘
                            ↕
    ┌────────────────────────────────────────────────────┐
-   │            Go Microservices (1.22)                 │
+   │            Go Microservices (1.23)                 │
    ├────────────────┬──────────────┬────────────────────┤
-   │  REST API      │  WebSocket   │    WebRTC/SFU      │
+   │  REST API      │  WebSocket   │    WebRTC SFU      │
    │  (Port 8000)   │  Server      │    Media Server    │
-   │                │  (Port 8080) │    (Port 7880)     │
+   │                │  (Port 8080) │    (Port 8083)     │
    └────────────────────────────────────────────────────┘
         ↕                  ↕                ↕
    ┌─────────────────────────────────────────────────┐
    │ NATS JetStream │   Cassandra  │     Redis       │
    │ (Event Bus)    │   (Primary)  │   (Cache)       │
    └─────────────────────────────────────────────────┘
+                                    ↕
+        ┌──────────────────────────────────────┐
+        │          TURN Server                 │
+        │       (NAT Traversal)                │
+        │        Port 3478                     │
+        └──────────────────────────────────────┘
 ```
 
 ## 🚀 Quick Start
@@ -243,6 +257,75 @@ nexus/
 - **Monitoring**: Prometheus + Grafana
 - **Orchestration**: Kubernetes with auto-scaling and health checks
 - **Security**: Network policies, RBAC, SSL/TLS termination
+
+## 🎥 WebRTC SFU Architecture
+
+### SFU Server Implementation
+Our **Selective Forwarding Unit (SFU)** provides scalable video conferencing capabilities:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  SFU Media Server                       │
+│                 (Go + Pion WebRTC)                      │
+├─────────────────────────────────────────────────────────┤
+│  📡 WebSocket Signaling  │  🎬 Media Processing        │
+│  • offer/answer         │  • RTP packet forwarding    │
+│  • ICE candidates       │  • VP8/H264/Opus codecs     │
+│  • Room management      │  • Bandwidth adaptation     │
+└─────────────────────────────────────────────────────────┘
+               ↕ WebSocket (Port 8083)
+┌─────────────────────────────────────────────────────────┐
+│                   Client Peers                          │
+│  👤 User A ←→ 👤 User B ←→ 👤 User C ←→ 👤 User D       │
+│       ↑              ↑              ↑              ↑    │
+│   Camera/Mic     Camera/Mic     Camera/Mic     Camera/Mic│
+└─────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+- **🏠 Room-based Architecture**: Multiple concurrent rooms with isolated peer management
+- **🔄 Real-time Forwarding**: Direct RTP packet forwarding without transcoding
+- **🎯 Selective Forwarding**: Each client receives only the streams they need
+- **📡 WebSocket Signaling**: Real-time negotiation of offers, answers, and ICE candidates
+- **🎥 Multi-codec Support**: VP8, H264 for video; Opus for audio
+- **⚡ Auto-recovery**: Automatic reconnection on connection failures
+- **🐳 Production Ready**: Dockerized with proper port mapping and health checks
+
+### Usage Example
+
+```typescript
+// Frontend Integration
+import { sfuWebRTCService } from './services/sfuWebrtc'
+
+// Join a room
+await sfuWebRTCService.joinRoom('room-123', 'user-456')
+
+// Toggle video/audio
+const videoEnabled = await sfuWebRTCService.toggleVideo()
+const audioEnabled = await sfuWebRTCService.toggleAudio()
+
+// Listen for remote streams
+sfuWebRTCService.on('remote-stream', ({ streamId, stream }) => {
+  document.getElementById('remote-video').srcObject = stream
+})
+
+// Leave room
+sfuWebRTCService.leaveRoom()
+```
+
+### Environment Configuration
+
+```bash
+# Frontend (.env)
+VITE_SFU_WS_URL=ws://localhost:8083/ws
+
+# Docker Compose
+services:
+  media:
+    ports:
+      - "8083:8083"                    # WebSocket signaling
+      - "55000-55100:50000-50100/udp"  # RTP media ports
+```
 
 ## 🗄️ Database Schema
 
