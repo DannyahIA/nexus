@@ -18,8 +18,16 @@ type CassandraDB struct {
 func NewCassandraDB(hosts []string, keyspace string) (*CassandraDB, error) {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Keyspace = keyspace
-	cluster.Consistency = gocql.Quorum
-	cluster.ConnectTimeout = 5e9 // 5 segundos
+	cluster.Consistency = gocql.LocalQuorum // Melhor para multi-DC
+	
+	// Configurações de timeout e retry
+	cluster.Timeout = 10 * time.Second
+	cluster.ConnectTimeout = 5 * time.Second
+	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+	
+	// Configuração de connection pool
+	cluster.NumConns = 2 // Conexões por host
+	cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
 
 	session, err := cluster.CreateSession()
 	if err != nil {
@@ -74,6 +82,13 @@ func (db *CassandraDB) InitializeKeyspace() error {
 			user_id uuid PRIMARY KEY,
 			status text,
 			last_seen timestamp
+		)`,
+		`CREATE TABLE IF NOT EXISTS users_by_username_discriminator (
+			username text,
+			discriminator text,
+			user_id uuid,
+			email text,
+			PRIMARY KEY (username, discriminator)
 		)`,
 		`CREATE TABLE IF NOT EXISTS nexus.users (
 			user_id uuid PRIMARY KEY,
