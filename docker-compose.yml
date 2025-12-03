@@ -51,24 +51,25 @@ services:
     environment:
       - TURNSERVER_ENABLED=1
     restart: unless-stopped
-    # postgres:
-    #   image: postgres:15-alpine
-    #   container_name: nexus-postgres
-    #   ports:
-    #     - "5433:5432"
-    #   environment:
-    #     - POSTGRES_DB=nexus_billing
-    #     - POSTGRES_USER=nexus
-    #     - POSTGRES_PASSWORD=secret
-    #   volumes:
-    #     - postgres_data:/var/lib/postgresql/data
-    # healthcheck:
-    #   test: ["CMD-SHELL", "pg_isready -U nexus"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
-    # networks:
-    #   - nexus-network
+
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: nexus-postgres
+  #   ports:
+  #     - "5433:5432"
+  #   environment:
+  #     - POSTGRES_DB=nexus_billing
+  #     - POSTGRES_USER=nexus
+  #     - POSTGRES_PASSWORD=secret
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  # healthcheck:
+  #   test: ["CMD-SHELL", "pg_isready -U nexus"]
+  #   interval: 10s
+  #   timeout: 5s
+  #   retries: 5
+  # networks:
+  #   - nexus-network
 
   redis:
     image: redis:7-alpine
