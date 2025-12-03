@@ -139,8 +139,8 @@ volumes:
     driver: local
   nats_data:
     driver: local
-  #  postgres_data:
-  #    driver: local
+#  postgres_data:
+#    driver: local
   redis_data:
     driver: local
 
