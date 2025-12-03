@@ -134,6 +134,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Media/SFU Service para WebRTC
+  media:
+    build:
+      context: ./backend
+      dockerfile: ./cmd/media/Dockerfile
+    container_name: nexus-media-sfu
+    ports:
+      - "8083:8083"
+      - "55000-55100:50000-50100/udp"  # Portas UDP para RTP (range menor para evitar conflitos)
+    env_file:
+      - ./backend/.env
+    environment:
+      - NATS_URL=nats://nats:4222
+      - JWT_SECRET=your-secret-key-here-change-in-production
+    depends_on:
+      nats:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   cassandra_data:
     driver: local
