@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 	"time"
+	
+	"github.com/gocql/gocql"
 )
 
 // GenerateDiscriminator gera um discriminador único de 4 dígitos para um username
@@ -31,15 +33,19 @@ func (db *CassandraDB) GenerateDiscriminator(username string) (string, error) {
 
 // DiscriminatorExists verifica se um username#discriminator já existe
 func (db *CassandraDB) DiscriminatorExists(username, discriminator string) (bool, error) {
-	query := `SELECT COUNT(*) FROM nexus.users WHERE username = ? AND discriminator = ? ALLOW FILTERING`
+	// Use nova tabela otimizada sem ALLOW FILTERING
+	query := `SELECT user_id FROM nexus.users_by_username_discriminator WHERE username = ? AND discriminator = ?`
 	
-	var count int
-	err := db.session.Query(query, username, discriminator).Scan(&count)
+	var userID string
+	err := db.session.Query(query, username, discriminator).Scan(&userID)
 	if err != nil {
+		if err.Error() == "not found" {
+			return false, nil
+		}
 		return false, err
 	}
 	
-	return count > 0, nil
+	return true, nil // Se encontrou o user_id, o discriminator existe
 }
 
 // CreateUserWithDiscriminator cria um usuário com discriminador único
