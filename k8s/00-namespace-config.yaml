@@ -1,0 +1,54 @@
+# Namespace para isolar recursos do Nexus
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexus
+  labels:
+    app.kubernetes.io/name: nexus
+    app.kubernetes.io/instance: nexus
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: namespace
+---
+# ConfigMap para configurações compartilhadas
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-config
+  namespace: nexus
+data:
+  # Cassandra
+  CASS_KEYSPACE: "nexus"
+  CASS_PORT: "9042"
+  
+  # NATS
+  NATS_URL: "nats://nexus-nats:4222"
+  
+  # Redis
+  REDIS_URL: "nexus-redis:6379"
+  
+  # Aplicação
+  ENV: "production"
+  LOG_LEVEL: "info"
+  API_PORT: "8000"
+  WS_PORT: "8080"
+  
+  # CORS (personalizar conforme necessário)
+  CORS_ALLOWED_ORIGINS: "*"
+---
+# Secret para dados sensíveis
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nexus-secrets
+  namespace: nexus
+type: Opaque
+data:
+  # JWT_SECRET - deve ser alterado para base64 de uma chave segura
+  # echo -n "your-super-secure-jwt-secret-key-here" | base64
+  JWT_SECRET: eW91ci1zdXBlci1zZWN1cmUtand0LXNlY3JldC1rZXktaGVyZQ==
+  
+  # TURN credentials
+  # echo -n "nexus" | base64
+  TURN_USER: bmV4dXM=
+  # echo -n "secure-turn-password" | base64  
+  TURN_PASS: c2VjdXJlLXR1cm4tcGFzc3dvcmQ=
