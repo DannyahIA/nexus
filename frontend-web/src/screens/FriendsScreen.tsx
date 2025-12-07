@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useFriendsStore, Friend, FriendRequest } from '../store/friendsStore'
 import { api } from '../services/api'
-import { UserPlus, MessageCircle, UserMinus, Check, X, Users, Inbox, Search } from 'lucide-react'
+import { Users, Inbox, X, Check, UserPlus, UserMinus, MessageCircle } from 'lucide-react'
 import { formatDate } from '../i18n/dateFormatter'
 import AppBackground from '../components/AppBackground'
 

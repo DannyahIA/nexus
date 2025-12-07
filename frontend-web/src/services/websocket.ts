@@ -161,7 +161,7 @@ export class WebSocketService {
 
       case 'typing':
         if (wsMsg.data) {
-          const typingData: TypingData = JSON.parse(wsMsg.data)
+          // const typingData: TypingData = JSON.parse(wsMsg.data)
           // console.log(`${typingData.username} is ${typingData.isTyping ? 'typing' : 'stopped typing'}`)
           // TODO: Update UI with typing indicator
         }

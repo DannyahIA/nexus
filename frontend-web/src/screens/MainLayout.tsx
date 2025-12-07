@@ -29,8 +29,6 @@ export default function MainLayout() {
     dmChannels: state.dmChannels,
     setDMChannels: state.setDMChannels
   }))
-  const setFriends = useFriendsStore((state) => state.setFriends)
-  const setFriendRequests = useFriendsStore((state) => state.setFriendRequests)
 
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
@@ -69,11 +67,11 @@ export default function MainLayout() {
       setServers(serversRes.data || [])
 
       // Carregar amigos
-      const friendsRes = await api.getFriends()
+      await api.getFriends()
       // setFriends(friendsRes.data || []) // Store should handle if we use the setters from store
 
       // Carregar solicitações de amizade
-      const requestsRes = await api.getFriendRequests()
+      await api.getFriendRequests()
       // setFriendRequests(requestsRes.data || [])
 
       // Carregar DMs
