@@ -1,65 +1,36 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Outlet, useParams, useNavigate } from 'react-router-dom'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelList from '../components/ChannelList'
-import VoiceStatus from '../components/VoiceStatus'
-import UserProfilePanel from '../components/UserProfilePanel'
 import { useServerStore } from '../store/serverStore'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
-import { useVoiceStore } from '../store/voiceStore'
-import { webrtcService } from '../services/webrtc'
 import { api } from '../services/api'
 import { wsService } from '../services/websocket'
 import { useVoiceUsers } from '../hooks/useVoiceUsers'
+import AppBackground from '../components/AppBackground'
+import TasksScreen from './TasksScreen'
 
 export default function MainLayout() {
-  const { serverId } = useParams()
+  const { serverId, channelId } = useParams()
   const navigate = useNavigate()
-  
+
   // Hook para gerenciar usuários em canais de voz
   useVoiceUsers()
-  
+
   const servers = useServerStore((state) => state.servers)
   const setServers = useServerStore((state) => state.setServers)
   const serverChannels = useServerStore((state) => state.serverChannels)
   const setServerChannels = useServerStore((state) => state.setServerChannels)
   const setActiveServer = useServerStore((state) => state.setActiveServer)
-  
+
   const dmChannels = useFriendsStore((state) => state.dmChannels)
   const setDMChannels = useFriendsStore((state) => state.setDMChannels)
   const setFriends = useFriendsStore((state) => state.setFriends)
   const setFriendRequests = useFriendsStore((state) => state.setFriendRequests)
-  
+
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
-  
-  // Voice state
-  const isConnected = useVoiceStore((state) => state.isConnected)
-  const currentChannelName = useVoiceStore((state) => state.currentChannelName)
-  const setDisconnected = useVoiceStore((state) => state.setDisconnected)
-  
-  // Audio controls
-  const [isMuted, setIsMuted] = useState(false)
-  const [isDeafened, setIsDeafened] = useState(false)
-  
-  const handleDisconnectVoice = () => {
-    webrtcService.leaveVoiceChannel()
-    setDisconnected()
-  }
-
-  const handleToggleMute = () => {
-    setIsMuted(!isMuted)
-    // TODO: Implementar mute real do microfone
-  }
-
-  const handleToggleDeafen = () => {
-    setIsDeafened(!isDeafened)
-    if (!isDeafened) {
-      setIsMuted(true) // Deafen também muta
-    }
-    // TODO: Implementar deafen real do áudio
-  }
 
   useEffect(() => {
     // Verificar autenticação
@@ -132,70 +103,63 @@ export default function MainLayout() {
 
   const currentServer = servers.find((s) => s.id === serverId)
   const currentChannels = serverId ? serverChannels[serverId] || [] : []
+  const currentChannel = currentChannels.find(c => c.id === channelId)
+
+  // Map DM channels to match ChannelList expected type
+  const mappedDMChannels = dmChannels.map(dm => ({
+    ...dm,
+    name: dm.name || dm.participants[0]?.username || 'Direct Message',
+    isPrivate: true
+  }))
 
   return (
-    <div className="flex h-screen bg-dark-900 text-white overflow-hidden">
-      {/* Server Sidebar */}
-      <ServerSidebar />
+    <div className="relative flex h-screen w-full overflow-hidden bg-black text-white">
+      <AppBackground />
 
-      {/* Channel List */}
-      {serverId ? (
-        <ChannelList
-          serverId={serverId}
-          serverName={currentServer?.name}
-          channels={currentChannels}
-          isMuted={isMuted}
-          isDeafened={isDeafened}
-          onToggleMute={handleToggleMute}
-          onToggleDeafen={handleToggleDeafen}
-        />
-      ) : (
-        // Mostrar lista de DMs quando não estiver em um servidor
-        <div className="w-60 bg-dark-800 flex flex-col">
-          <div className="h-12 px-4 flex items-center border-b border-dark-700 shadow-md">
-            <h2 className="font-semibold text-white">Direct Messages</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {dmChannels.map((dm) => (
-              <button
-                key={dm.id}
-                onClick={() => navigate(`/dm/${dm.id}`)}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-dark-700 text-left mb-1"
-              >
-                <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
-                  {dm.type === 'dm'
-                    ? dm.participants[0]?.username.charAt(0).toUpperCase()
-                    : 'G'}
-                </div>
-                <span className="truncate text-sm">
-                  {dm.type === 'dm'
-                    ? dm.participants[0]?.username
-                    : dm.name || 'Group DM'}
-                </span>
-              </button>
-            ))}
-          </div>
-          
-          {/* Voice Status */}
-          {isConnected && currentChannelName && (
-            <VoiceStatus
-              channelName={currentChannelName}
-              onDisconnect={handleDisconnectVoice}
+      {/* Content Wrapper - z-10 to sit above background */}
+      <div className="relative z-10 flex w-full h-full">
+        {/* Server Sidebar */}
+        <div className="h-full z-20">
+          <ServerSidebar />
+        </div>
+
+        {/* Channel List */}
+        <div className="h-full z-10">
+          {serverId ? (
+            <ChannelList
+              serverId={serverId}
+              server={currentServer}
+              serverName={currentServer?.name}
+              channels={currentChannels}
+              activeChannelId={channelId}
+            />
+          ) : (
+            <ChannelList
+              serverId={null}
+              channels={mappedDMChannels}
+              activeChannelId={channelId}
             />
           )}
-
-          {/* User Profile Panel */}
-          <UserProfilePanel
-            isMuted={isMuted}
-            isDeafened={isDeafened}
-            onToggleMute={handleToggleMute}
-            onToggleDeafen={handleToggleDeafen}
-          />
         </div>
-      )}
 
-      {/* Main Content */}
-      <Outlet />
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-dark-900 relative">
+          {/* Background Pattern */}
+          <div className="absolute inset-0 z-0 opacity-40 pointer-events-none">
+            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay"></div>
+            <div className="absolute top-[-50%] left-[-20%] w-[80%] h-[80%] rounded-full bg-purple-900/10 blur-[120px] animate-pulse-slow"></div>
+            <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] rounded-full bg-indigo-900/10 blur-[100px] animate-pulse-slow delay-1000"></div>
+          </div>
+
+          <div className="relative z-10 flex-1 flex flex-col h-full">
+            {currentChannel?.type === 'task' ? (
+              <TasksScreen channelId={channelId} isEmbedded={true} />
+            ) : (
+              <Outlet />
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

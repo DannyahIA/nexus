@@ -7,7 +7,7 @@ import FloatingLines from '@/components/FloatingLinesBackground'
 import TextPressure from '@/components/TextPressure'
 
 // --- CONFIGURAÇÃO VISUAL ---
-const WAVES_CONFIG = ['top', 'middle', 'bottom'];
+const WAVES_CONFIG: ("top" | "middle" | "bottom")[] = ['top', 'middle', 'bottom'];
 
 const BackgroundLayer = memo(() => {
   return (
@@ -84,12 +84,12 @@ export default function RegisterScreen() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black flex items-center justify-center font-sans">
-      
+
       <BackgroundLayer />
 
       <div className="relative z-10 w-full max-w-md px-2">
         <div className="backdrop-blur-xl bg-black/20 border border-white/10 rounded-3xl shadow-[0_0_40px_-10px_rgba(100,0,255,0.1)] p-8">
-          
+
           {/* Header */}
           <div className="flex flex-col items-center mb-10 h-24 justify-end">
             <div className="relative w-full flex justify-center">
@@ -103,8 +103,8 @@ export default function RegisterScreen() {
                   weight={true}
                   italic={true}
                   textColor="#ffffff"
-                  strokeColor="#a855f7" 
-                  minFontSize={42} 
+                  strokeColor="#a855f7"
+                  minFontSize={42}
                 />
               </div>
             </div>
@@ -114,7 +114,7 @@ export default function RegisterScreen() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6"> {/* Espaçamento aumentado para 6 */}
-            
+
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-xl text-sm backdrop-blur-md flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
@@ -183,9 +183,30 @@ export default function RegisterScreen() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="mt-1.5 text-[10px] text-white/30 pl-1 uppercase tracking-wider">
-                {password.length > 0 && password.length < 6 ? t('passwordMinLength') : ''}
-              </p>
+
+              {/* Password Strength Checklist */}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-medium transition-colors ${password.length >= 8 ? 'text-green-400' : 'text-white/30'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${password.length >= 8 ? 'bg-green-400' : 'bg-white/20'}`} />
+                  8+ Characters
+                </div>
+                <div className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-medium transition-colors ${/[A-Z]/.test(password) ? 'text-green-400' : 'text-white/30'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${/[A-Z]/.test(password) ? 'bg-green-400' : 'bg-white/20'}`} />
+                  Uppercase
+                </div>
+                <div className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-medium transition-colors ${/[a-z]/.test(password) ? 'text-green-400' : 'text-white/30'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${/[a-z]/.test(password) ? 'bg-green-400' : 'bg-white/20'}`} />
+                  Lowercase
+                </div>
+                <div className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-medium transition-colors ${/[0-9]/.test(password) ? 'text-green-400' : 'text-white/30'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${/[0-9]/.test(password) ? 'bg-green-400' : 'bg-white/20'}`} />
+                  Number
+                </div>
+                <div className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-medium transition-colors ${/[!@#$%^&*(),.?":{}|<>]/.test(password) ? 'text-green-400' : 'text-white/30'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${/[!@#$%^&*(),.?":{}|<>]/.test(password) ? 'bg-green-400' : 'bg-white/20'}`} />
+                  Special Char
+                </div>
+              </div>
             </div>
 
             <div className="group">

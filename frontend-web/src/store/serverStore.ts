@@ -24,7 +24,7 @@ export interface Channel {
   id: string
   serverId?: string
   name: string
-  type: 'text' | 'voice' | 'dm' | 'group_dm' | 'announcement'
+  type: 'text' | 'voice' | 'dm' | 'group_dm' | 'announcement' | 'task'
   description?: string
   isPrivate: boolean
   ownerId?: string
@@ -37,19 +37,19 @@ interface ServerState {
   activeServerId: string | null
   serverChannels: Record<string, Channel[]>
   serverMembers: Record<string, ServerMember[]>
-  
+
   setServers: (servers: Server[]) => void
   addServer: (server: Server) => void
   updateServer: (serverId: string, updates: Partial<Server>) => void
   removeServer: (serverId: string) => void
-  
+
   setActiveServer: (serverId: string | null) => void
-  
+
   setServerChannels: (serverId: string, channels: Channel[]) => void
   addChannel: (serverId: string, channel: Channel) => void
   updateChannel: (channelId: string, updates: Partial<Channel>) => void
   removeChannel: (serverId: string, channelId: string) => void
-  
+
   setServerMembers: (serverId: string, members: ServerMember[]) => void
   addMember: (serverId: string, member: ServerMember) => void
   removeMember: (serverId: string, userId: string) => void
@@ -60,19 +60,19 @@ export const useServerStore = create<ServerState>((set) => ({
   activeServerId: null,
   serverChannels: {},
   serverMembers: {},
-  
+
   setServers: (servers) => set({ servers }),
-  
+
   addServer: (server) =>
     set((state) => ({ servers: [...state.servers, server] })),
-  
+
   updateServer: (serverId, updates) =>
     set((state) => ({
       servers: state.servers.map((s) =>
         s.id === serverId ? { ...s, ...updates } : s
       ),
     })),
-  
+
   removeServer: (serverId) =>
     set((state) => ({
       servers: state.servers.filter((s) => s.id !== serverId),
@@ -80,14 +80,14 @@ export const useServerStore = create<ServerState>((set) => ({
         Object.entries(state.serverChannels).filter(([id]) => id !== serverId)
       ),
     })),
-  
+
   setActiveServer: (serverId) => set({ activeServerId: serverId }),
-  
+
   setServerChannels: (serverId, channels) =>
     set((state) => ({
       serverChannels: { ...state.serverChannels, [serverId]: channels },
     })),
-  
+
   addChannel: (serverId, channel) =>
     set((state) => ({
       serverChannels: {
@@ -95,7 +95,7 @@ export const useServerStore = create<ServerState>((set) => ({
         [serverId]: [...(state.serverChannels[serverId] || []), channel],
       },
     })),
-  
+
   updateChannel: (channelId, updates) =>
     set((state) => ({
       serverChannels: Object.fromEntries(
@@ -105,7 +105,7 @@ export const useServerStore = create<ServerState>((set) => ({
         ])
       ),
     })),
-  
+
   removeChannel: (serverId, channelId) =>
     set((state) => ({
       serverChannels: {
@@ -115,12 +115,12 @@ export const useServerStore = create<ServerState>((set) => ({
         ),
       },
     })),
-  
+
   setServerMembers: (serverId, members) =>
     set((state) => ({
       serverMembers: { ...state.serverMembers, [serverId]: members },
     })),
-  
+
   addMember: (serverId, member) =>
     set((state) => ({
       serverMembers: {
@@ -128,7 +128,7 @@ export const useServerStore = create<ServerState>((set) => ({
         [serverId]: [...(state.serverMembers[serverId] || []), member],
       },
     })),
-  
+
   removeMember: (serverId, userId) =>
     set((state) => ({
       serverMembers: {

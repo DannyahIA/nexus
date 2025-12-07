@@ -8,13 +8,16 @@ export interface Task {
   status: 'todo' | 'in-progress' | 'done'
   assignee?: string
   priority: 'low' | 'medium' | 'high'
+  columnId?: string
+  labels?: string[]
+  dueDate?: number
   createdAt: number
   updatedAt: number
 }
 
 interface TaskState {
   tasks: Record<string, Task[]>
-  
+
   setTasks: (channelId: string, tasks: Task[]) => void
   addTask: (task: Task) => void
   updateTask: (taskId: string, updates: Partial<Task>) => void
@@ -43,7 +46,7 @@ export const useTaskStore = create<TaskState>((set) => ({
   updateTask: (taskId, updates) =>
     set((state) => {
       const newTasks = { ...state.tasks }
-      
+
       for (const channelId in newTasks) {
         const index = newTasks[channelId].findIndex((t) => t.id === taskId)
         if (index !== -1) {
@@ -55,7 +58,7 @@ export const useTaskStore = create<TaskState>((set) => ({
           break
         }
       }
-      
+
       return { tasks: newTasks }
     }),
 

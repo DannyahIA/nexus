@@ -62,6 +62,8 @@ export default function VideoGrid({
       isLocal: boolean
       hasVideo: boolean
       isScreenSharing: boolean
+      isMuted: boolean
+      isSpeaking: boolean
       priority: number // 1 = screen share, 2 = camera, 3 = voice only
     }> = []
 
@@ -73,6 +75,8 @@ export default function VideoGrid({
       isLocal: true,
       hasVideo: isLocalVideoEnabled || isLocalScreenSharing,
       isScreenSharing: isLocalScreenSharing,
+      isMuted: isLocalMuted,
+      isSpeaking: isLocalSpeaking,
       priority: localPriority,
     })
 
@@ -86,6 +90,8 @@ export default function VideoGrid({
         isLocal: false,
         hasVideo: voiceUser.isVideoEnabled || isScreenSharing,
         isScreenSharing,
+        isMuted: voiceUser.isMuted,
+        isSpeaking: voiceUser.isSpeaking,
         priority,
       })
     })
@@ -155,19 +161,15 @@ export default function VideoGrid({
     const screenShareUser = usersWithVideo.find(u => u.isScreenSharing)
     const videoUsers = usersWithVideo.filter(u => u.hasVideo && !u.isScreenSharing)
     const voiceOnlyUsers = usersWithVideo.filter(u => !u.hasVideo)
-    
+
     // Google Meet style: Screen share takes priority
     if (screenShareUser) {
-      // For bottom strip: Show all users with cameras (excluding screen share itself)
-      // If local user is sharing screen, we still want to show their camera if available
-      const cameraUsers = usersWithVideo.filter(u => !u.isScreenSharing)
-      const allVoiceOnly = voiceOnlyUsers
-      
-      // Add all users to bottom strip
-      const bottomStripUsers = [...cameraUsers, ...allVoiceOnly]
-      
+      // For bottom strip: Show ALL users (including screen sharer, who will be shown as avatar)
+      // This mimics Google Meet/Teams where the presenter is still visible in the list
+      const bottomStripUsers = usersWithVideo;
+
       return (
-        <div className="flex-1 flex flex-col overflow-hidden bg-dark-900">
+        <div className="flex-1 flex flex-col overflow-hidden">
           {/* Main screen share area - ONLY shows the screen share */}
           <div className="flex-1 flex items-center justify-center p-4 min-h-0">
             {screenShareUser.isLocal ? (
@@ -202,23 +204,28 @@ export default function VideoGrid({
               />
             )}
           </div>
-          
+
           {/* Bottom strip with ALL participants including screen sharer's camera (Google Meet style) */}
           {bottomStripUsers.length > 0 && (
             <div className="h-32 flex items-center gap-2 px-4 pb-4 overflow-x-auto">
               {bottomStripUsers.map(user => {
+                // If this is the screen sharing user (local or remote), we want to show them as an Avatar 
+                // in the bottom strip, effectively simulating "Camera Off" while they present.
+                // This prevents showing a tiny duplicate mirror of the screen share.
+                const isPresenter = user.isScreenSharing
+
                 if (user.isLocal) {
                   return (
                     <div key={user.userId} className="flex-shrink-0 w-40 h-28">
                       <VideoTile
                         userId={currentUserId}
                         username={currentUsername}
-                        stream={localStream}
+                        stream={isPresenter ? null : localStream}
                         isLocal={true}
                         isMuted={isLocalMuted}
-                        isVideoEnabled={isLocalVideoEnabled}
+                        isVideoEnabled={isPresenter ? false : isLocalVideoEnabled}
                         isSpeaking={isLocalSpeaking}
-                        isScreenSharing={false}
+                        isScreenSharing={false} // This tile represents the user, not the screen
                         connectionQuality={null}
                         size="small"
                         showControls={false}
@@ -227,21 +234,18 @@ export default function VideoGrid({
                   )
                 }
 
-                const voiceUser = voiceUsers.find(v => v.userId === user.userId)
-                if (!voiceUser) return null
-
                 return (
                   <div key={user.userId} className="flex-shrink-0 w-40 h-28">
                     <VideoTile
-                      userId={voiceUser.userId}
-                      username={voiceUser.username}
-                      stream={remoteStreams.get(voiceUser.userId) || null}
+                      userId={user.userId}
+                      username={user.username}
+                      stream={isPresenter ? null : (remoteStreams.get(user.userId) || null)}
                       isLocal={false}
-                      isMuted={voiceUser.isMuted}
-                      isVideoEnabled={voiceUser.isVideoEnabled}
-                      isSpeaking={voiceUser.isSpeaking}
-                      isScreenSharing={false}
-                      connectionQuality={connectionQualities.get(voiceUser.userId) || null}
+                      isMuted={user.isMuted}
+                      isVideoEnabled={isPresenter ? false : user.hasVideo}
+                      isSpeaking={user.isSpeaking}
+                      isScreenSharing={false} // This tile represents the user, not the screen
+                      connectionQuality={connectionQualities.get(user.userId) || null}
                       size="small"
                       showControls={false}
                     />
@@ -258,8 +262,16 @@ export default function VideoGrid({
     const allUsers = [...videoUsers, ...voiceOnlyUsers]
     const gridColumns = calculateGridColumns(allUsers.length)
 
+    // Determine dynamic size for tiles
+    const getDynamicSize = () => {
+      if (allUsers.length <= 2) return 'large'
+      if (allUsers.length <= 9) return 'medium'
+      return 'small'
+    }
+    const tileSize = getDynamicSize()
+
     return (
-      <div className="flex-1 flex overflow-hidden bg-dark-900">
+      <div className="flex-1 flex overflow-hidden">
         <div
           className="flex-1 video-grid-gallery"
           style={{
@@ -281,7 +293,7 @@ export default function VideoGrid({
                   isSpeaking={isLocalSpeaking}
                   isScreenSharing={false}
                   connectionQuality={null}
-                  size="medium"
+                  size={tileSize}
                   showControls={true}
                 />
               )
@@ -302,7 +314,7 @@ export default function VideoGrid({
                 isSpeaking={voiceUser.isSpeaking}
                 isScreenSharing={false}
                 connectionQuality={connectionQualities.get(voiceUser.userId) || null}
-                size="medium"
+                size={tileSize}
                 showControls={true}
               />
             )
@@ -361,18 +373,22 @@ export default function VideoGrid({
         {sidebarUsers.length > 0 && (
           <div className="video-grid-spotlight-sidebar">
             {sidebarUsers.map(({ userId, isLocal }) => {
+              // Check if this user is the screen sharer (presenter)
+              // If so, we force Avatar view to avoid infinite mirror of the screen share
+              const isPresenter = screenShareUserId === userId
+
               if (isLocal) {
                 return (
                   <VideoTile
                     key={userId}
                     userId={currentUserId}
                     username={currentUsername}
-                    stream={localStream}
+                    stream={isPresenter ? null : localStream}
                     isLocal={true}
                     isMuted={isLocalMuted}
-                    isVideoEnabled={isLocalVideoEnabled}
+                    isVideoEnabled={isPresenter ? false : isLocalVideoEnabled}
                     isSpeaking={isLocalSpeaking}
-                    isScreenSharing={isLocalScreenSharing}
+                    isScreenSharing={false} // Tile represents user
                     connectionQuality={null}
                     size="small"
                     showControls={false}
@@ -388,12 +404,12 @@ export default function VideoGrid({
                   key={userId}
                   userId={voiceUser.userId}
                   username={voiceUser.username}
-                  stream={remoteStreams.get(voiceUser.userId) || null}
+                  stream={isPresenter ? null : (remoteStreams.get(voiceUser.userId) || null)}
                   isLocal={false}
                   isMuted={voiceUser.isMuted}
-                  isVideoEnabled={voiceUser.isVideoEnabled}
+                  isVideoEnabled={isPresenter ? false : voiceUser.isVideoEnabled}
                   isSpeaking={voiceUser.isSpeaking}
-                  isScreenSharing={screenShareUserId === voiceUser.userId}
+                  isScreenSharing={false} // Tile represents user
                   connectionQuality={connectionQualities.get(voiceUser.userId) || null}
                   size="small"
                   showControls={false}
