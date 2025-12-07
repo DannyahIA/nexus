@@ -14,6 +14,28 @@ import MessageList from '../components/MessageList'
 import ServerInviteModal from '../components/ServerInviteModal'
 import VoiceChannel from '../components/VoiceChannel'
 import { useInfiniteMessages } from '../hooks/useInfiniteMessages'
+import FloatingLines from '../components/FloatingLinesBackground'
+import { memo } from 'react'
+
+const WAVES_CONFIG: ("top" | "middle" | "bottom")[] = ['top', 'middle', 'bottom'];
+
+const BackgroundLayer = memo(() => {
+  return (
+    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+      <FloatingLines
+        enabledWaves={WAVES_CONFIG}
+        lineCount={3}
+        lineDistance={50}
+        bendRadius={5.0}
+        bendStrength={-0.5}
+        interactive={false}
+        parallax={true}
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/20 to-black/80 pointer-events-none" />
+    </div>
+  )
+});
+BackgroundLayer.displayName = 'BackgroundLayer';
 
 export default function ChatScreen() {
   const { t } = useTranslation('chat')
@@ -189,11 +211,28 @@ export default function ChatScreen() {
       const response = await api.sendMessage(channelId, messageToSend)
       console.log('Message sent successfully:', response.data)
 
-      // Enviar via WebSocket para broadcast em tempo real
-      wsService.sendMessage(channelId, messageToSend)
+      // Adicionar mensagem localmente imediatamente para feedback instantâneo (Optimistic UI)
+      // O ID vindo da API garante que não haverá duplicatas se o WS também enviar
+      if (response.data) {
+        addMessage({
+          id: response.data.id,
+          channelId: channelId,
+          userId: user?.id || '',
+          username: user?.username || '',
+          content: messageToSend,
+          timestamp: response.data.createdAt ? new Date(response.data.createdAt).getTime() : Date.now(),
+          avatar: user?.avatar,
+        })
+      }
 
-      // NÃO adicionar mensagem localmente aqui - deixar o WebSocket fazer isso
-      // para evitar duplicação. A mensagem será recebida via WebSocket broadcast
+      // Enviar via WebSocket para broadcast em tempo real para OUTROS usuários
+      // O backend provavelmente não faz broadcast automático da API de persistência
+      // Passamos o ID original para garantir consistência
+      if (response.data && response.data.id) {
+        wsService.sendMessage(channelId, messageToSend, response.data.id)
+      } else {
+        wsService.sendMessage(channelId, messageToSend)
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
       setMessage(messageToSend) // Restaurar mensagem em caso de erro
@@ -290,217 +329,225 @@ export default function ChatScreen() {
     : null
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ maxWidth: '100%', width: '100%' }}>
-      {/* Header */}
-      <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4 gap-4 shadow-sm">
-        {currentChannel && (
-          <>
-            <div className="flex items-center gap-3 flex-1">
-              {/* Indicador visual do canal - apenas barra colorida e ícone */}
-              <div className="flex items-center gap-2">
-                <div className={`w-1 h-8 rounded-full ${currentChannel.type === 'voice'
-                  ? 'bg-green-500'
-                  : currentChannel.type === 'dm'
-                    ? 'bg-blue-500'
-                    : 'bg-primary-500'
-                  }`} />
-              </div>
-              {/* Avatar para DM */}
-              {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && (
-                <div className="relative">
-                  <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
-                    {otherUser.username?.charAt(0).toUpperCase() || '?'}
+    <div className="flex-1 flex flex-col relative overflow-hidden" style={{ maxWidth: '100%', width: '100%' }}>
+      {/* Background Layer - Only show when NOT in active voice call to avoid duplication */}
+      {!isInVoiceThisChannel && <BackgroundLayer />}
+
+      {/* Content wrapper with z-10 to sit above background */}
+      <div className="relative z-10 flex-1 flex flex-col h-full bg-black/40 backdrop-blur-sm">
+        {/* Header */}
+        <div className="h-16 bg-dark-900/40 backdrop-blur-md border-b border-white/5 flex items-center px-4 gap-4 shadow-lg z-20">
+          {currentChannel && (
+            <>
+              <div className="flex items-center gap-3 flex-1">
+                {/* Indicador visual do canal - apenas barra colorida e ícone */}
+                <div className="flex items-center gap-2">
+                  <div className={`w-1 h-8 rounded-full ${currentChannel.type === 'voice'
+                    ? 'bg-green-500'
+                    : currentChannel.type === 'dm'
+                      ? 'bg-blue-500'
+                      : 'bg-primary-500'
+                    }`} />
+                </div>
+                {/* Avatar para DM */}
+                {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && (
+                  <div className="relative">
+                    <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
+                      {otherUser.username?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                    {/* Status indicator */}
+                    {'status' in otherUser ? (
+                      <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-dark-800 ${(otherUser as any).status === 'online' ? 'bg-green-500' :
+                        (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
+                          (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
+                        }`} />
+                    ) : null}
                   </div>
-                  {/* Status indicator */}
-                  {'status' in otherUser ? (
-                    <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-dark-800 ${(otherUser as any).status === 'online' ? 'bg-green-500' :
-                      (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
-                        (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
-                      }`} />
+                )}
+
+                {/* Icon para canal de servidor */}
+                {!isDM && <ChannelIcon className="w-5 h-5 text-dark-400" />}
+
+                <div>
+                  <h2 className="font-semibold">{channelName}</h2>
+                  {isDM && otherUser && typeof otherUser === 'object' && 'status' in otherUser ? (
+                    <p className="text-xs text-dark-400 capitalize">
+                      {t((otherUser as any).status || 'offline')}
+                    </p>
+                  ) : null}
+                  {!isDM && 'description' in currentChannel && currentChannel.description ? (
+                    <p className="text-xs text-dark-400">{currentChannel.description}</p>
                   ) : null}
                 </div>
-              )}
-
-              {/* Icon para canal de servidor */}
-              {!isDM && <ChannelIcon className="w-5 h-5 text-dark-400" />}
-
-              <div>
-                <h2 className="font-semibold">{channelName}</h2>
-                {isDM && otherUser && typeof otherUser === 'object' && 'status' in otherUser ? (
-                  <p className="text-xs text-dark-400 capitalize">
-                    {t((otherUser as any).status || 'offline')}
-                  </p>
-                ) : null}
-                {!isDM && 'description' in currentChannel && currentChannel.description ? (
-                  <p className="text-xs text-dark-400">{currentChannel.description}</p>
-                ) : null}
               </div>
-            </div>
-          </>
+            </>
+          )}
+        </div>
+
+        {/* Modal de Convite */}
+        {currentServer && (
+          <ServerInviteModal
+            isOpen={showInviteModal}
+            onClose={() => setShowInviteModal(false)}
+            server={currentServer}
+            mode="invite"
+          />
         )}
-      </div>
 
-      {/* Modal de Convite */}
-      {currentServer && (
-        <ServerInviteModal
-          isOpen={showInviteModal}
-          onClose={() => setShowInviteModal(false)}
-          server={currentServer}
-          mode="invite"
-        />
-      )}
+        {/* Voice Channel ou Messages */}
+        {isInVoiceThisChannel ? (
+          <VoiceChannel
+            channelId={channelId}
+            channelName={channelName}
+            onLeave={handleLeaveVoice}
+          />
+        ) : currentChannel?.type === 'voice' ? (
+          <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden">
+            {/* Background Animation is provided by parent container now */}
 
-      {/* Voice Channel ou Messages */}
-      {isInVoiceThisChannel ? (
-        <VoiceChannel
-          channelId={channelId}
-          channelName={channelName}
-          onLeave={handleLeaveVoice}
-        />
-      ) : currentChannel?.type === 'voice' ? (
-        <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden bg-black">
-          {/* Subtle Background Animation */}
-          <div className="absolute inset-0 z-0 opacity-30">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/40 via-black to-black animate-pulse-slow" />
-          </div>
-
-          <div className="relative z-10 flex flex-col items-center text-center max-w-lg w-full px-6">
-            {/* Pulsing Icon Ring */}
-            <div className="relative mb-8 group">
-              <div className="absolute inset-0 bg-green-500/20 rounded-full blur-xl group-hover:bg-green-500/30 transition-all duration-500 animate-pulse" />
-              <div className="relative w-32 h-32 bg-dark-800 rounded-full flex items-center justify-center border border-white/10 shadow-2xl group-hover:scale-105 transition-transform duration-300">
-                <Volume2 className="w-12 h-12 text-green-400" />
-              </div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 bg-green-500 rounded-full border-4 border-black flex items-center justify-center">
-                <div className="w-3 h-3 bg-white rounded-full animate-ping" />
-              </div>
-            </div>
-
-            <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">{channelName}</h1>
-            <p className="text-white/40 text-lg mb-12">No one is here yet. Be the first to join!</p>
-
-            <button
-              onClick={handleJoinVoice}
-              disabled={_joiningVoice}
-              className="w-full max-w-xs py-4 px-8 bg-white text-black hover:bg-gray-200 rounded-full font-bold text-lg transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-            >
-              {_joiningVoice ? (
-                <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-              ) : (
-                <>
-                  <Volume2 className="w-5 h-5 fill-current" />
-                  {t('joinVoice')}
-                </>
-              )}
-            </button>
-
-            <div className="mt-8 flex items-center gap-4 text-white/30 text-sm font-medium">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-                High Quality Voice
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-blue-500" />
-                Low Latency
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* DM User Info Banner (Discord-style) */}
-          {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && messages.length === 0 && !loading && (
-            <div className="flex-1 flex items-center justify-center p-8">
-              <div className="text-center max-w-md">
-                <div className="w-20 h-20 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <span className="text-3xl font-bold">
-                    {otherUser.username?.charAt(0).toUpperCase() || '?'}
-                  </span>
+            <div className="relative z-10 flex flex-col items-center text-center max-w-lg w-full px-6">
+              {/* Pulsing Icon Ring */}
+              <div className="relative mb-8 group">
+                <div className="absolute inset-0 bg-green-500/20 rounded-full blur-xl group-hover:bg-green-500/30 transition-all duration-500 animate-pulse" />
+                <div className="relative w-32 h-32 bg-dark-800 rounded-full flex items-center justify-center border border-white/10 shadow-2xl group-hover:scale-105 transition-transform duration-300">
+                  <Volume2 className="w-12 h-12 text-green-400" />
                 </div>
-                <h2 className="text-2xl font-bold mb-2">{otherUser.username}</h2>
-                <p className="text-dark-400 mb-4">
-                  {t('dmStartMessage', { username: otherUser.username }).split('<1>').map((part, i) => {
-                    if (i === 0) return part
-                    const [username, rest] = part.split('</1>')
-                    return (
-                      <span key={i}>
-                        <span className="font-semibold text-white">{username}</span>
-                        {rest}
-                      </span>
-                    )
-                  })}
-                </p>
-                {'status' in otherUser ? (
-                  <div className="flex items-center justify-center gap-2 text-sm text-dark-400">
-                    <div className={`w-2 h-2 rounded-full ${(otherUser as any).status === 'online' ? 'bg-green-500' :
-                      (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
-                        (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
-                      }`} />
-                    <span className="capitalize">{t((otherUser as any).status || 'offline')}</span>
-                  </div>
-                ) : null}
+                <div className="absolute bottom-0 right-0 w-8 h-8 bg-green-500 rounded-full border-4 border-black flex items-center justify-center">
+                  <div className="w-3 h-3 bg-white rounded-full animate-ping" />
+                </div>
+              </div>
+
+              <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">{channelName}</h1>
+              <p className="text-white/40 text-lg mb-12">No one is here yet. Be the first to join!</p>
+
+              <button
+                onClick={handleJoinVoice}
+                disabled={_joiningVoice}
+                className="w-full max-w-xs py-4 px-8 bg-white text-black hover:bg-gray-200 rounded-full font-bold text-lg transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+              >
+                {_joiningVoice ? (
+                  <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Volume2 className="w-5 h-5 fill-current" />
+                    {t('joinVoice')}
+                  </>
+                )}
+              </button>
+
+              <div className="mt-8 flex items-center gap-4 text-white/30 text-sm font-medium">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                  High Quality Voice
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  Low Latency
+                </div>
               </div>
             </div>
-          )}
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* DM User Info Banner (Discord-style) */}
+            {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && messages.length === 0 && !loading && (
+              <div className="flex-1 flex items-center justify-center p-8">
+                <div className="text-center max-w-md">
+                  <div className="w-20 h-20 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl font-bold">
+                      {otherUser.username?.charAt(0).toUpperCase() || '?'}
+                    </span>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2">{otherUser.username}</h2>
+                  <p className="text-dark-400 mb-4">
+                    {t('dmStartMessage', { username: otherUser.username }).split('<1>').map((part, i) => {
+                      if (i === 0) return part
+                      const [username, rest] = part.split('</1>')
+                      return (
+                        <span key={i}>
+                          <span className="font-semibold text-white">{username}</span>
+                          {rest}
+                        </span>
+                      )
+                    })}
+                  </p>
+                  {'status' in otherUser ? (
+                    <div className="flex items-center justify-center gap-2 text-sm text-dark-400">
+                      <div className={`w-2 h-2 rounded-full ${(otherUser as any).status === 'online' ? 'bg-green-500' :
+                        (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
+                          (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
+                        }`} />
+                      <span className="capitalize">{t((otherUser as any).status || 'offline')}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
 
-          {/* Message List */}
-          {(messages.length > 0 || loading) && (
-            <MessageList
-              messages={messages}
-              loading={loading}
-              hasMore={hasMore}
-              onLoadMore={loadMore}
-              currentUserId={user?.id || ''}
-              isServerOwner={isServerOwner}
-              isServerAdmin={isServerAdmin}
-              onDeleteMessage={handleDeleteMessage}
-              onEditMessage={handleEditMessage}
-              onReplyMessage={handleReplyMessage}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Input (apenas quando não estiver em voice e o canal não for de voz) */}
-      {!isInVoiceThisChannel && currentChannel?.type !== 'voice' && (
-        <div className="p-4 border-t border-dark-700">
-          <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
-            <textarea
-              value={message}
-              onChange={(e) => {
-                handleMessageChange(e)
-                // Auto-resize
-                e.target.style.height = 'auto'
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSendMessage(e as any)
-                }
-              }}
-              placeholder={t('messagePlaceholder', { channelName })}
-              maxLength={8000}
-              className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent resize-none overflow-y-auto min-h-[48px] max-h-[120px]"
-              style={{ height: '48px' }}
-            />
-            <button
-              type="submit"
-              disabled={!message.trim()}
-              className="px-6 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2 min-h-[48px]"
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          </form>
-          <div className="flex justify-between items-center text-xs text-dark-500 mt-2">
-            {message.length > 1800 && message && (
-              <span className={`${message.length >= 2000 ? 'text-red-500' : message.length > 1800 ? 'text-yellow-500' : ''} ${message.length >= 2000 ? 'text-red-500' : ''}`}>
-                {t('characterCount', { count: message.length })}
-              </span>
+            {/* Message List */}
+            {(messages.length > 0 || loading) && (
+              <MessageList
+                messages={messages}
+                loading={loading}
+                hasMore={hasMore}
+                onLoadMore={loadMore}
+                currentUserId={user?.id || ''}
+                isServerOwner={isServerOwner}
+                isServerAdmin={isServerAdmin}
+                onDeleteMessage={handleDeleteMessage}
+                onEditMessage={handleEditMessage}
+                onReplyMessage={handleReplyMessage}
+              />
             )}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Input (apenas quando não estiver em voice e o canal não for de voz) */}
+        {!isInVoiceThisChannel && currentChannel?.type !== 'voice' && (
+          <div className="p-4 relative z-20">
+            <div className="bg-dark-900/60 backdrop-blur-md border border-white/10 rounded-2xl p-2 shadow-xl">
+              <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
+                <textarea
+                  value={message}
+                  onChange={(e) => {
+                    handleMessageChange(e)
+                    // Auto-resize
+                    e.target.style.height = 'auto'
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendMessage(e as any)
+                    }
+                  }}
+                  placeholder={t('messagePlaceholder', { channelName })}
+                  maxLength={8000}
+                  className="flex-1 px-4 py-3 bg-transparent text-white placeholder-white/40 focus:outline-none resize-none overflow-y-auto min-h-[48px] max-h-[120px]"
+                  style={{ height: '48px' }}
+                />
+                <button
+                  type="submit"
+                  disabled={!message.trim()}
+                  className="p-3 bg-primary-600 hover:bg-primary-500 disabled:bg-white/5 disabled:text-white/20 disabled:cursor-not-allowed rounded-xl transition-all duration-200 flex items-center gap-2 min-h-[48px] shadow-lg shadow-primary-900/20"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </form>
+              <div className="flex justify-between items-center text-xs text-white/30 px-2 pb-1 pt-1">
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  Shift + Enter for new line
+                </span>
+                {message.length > 1800 && message && (
+                  <span className={`${message.length >= 2000 ? 'text-red-400' : message.length > 1800 ? 'text-yellow-400' : ''}`}>
+                    {t('characterCount', { count: message.length })}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

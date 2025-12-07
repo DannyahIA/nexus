@@ -67,15 +67,15 @@ export class WebSocketService {
         console.log('WebSocket connected', wasReconnecting ? '(reconnected)' : '(initial connection)')
         this.reconnectAttempts = 0
         this.isConnecting = false
-        
+
         // Iniciar heartbeat
         this.startHeartbeat()
-        
+
         // Reinscrever em canais após reconexão
         this.subscribedChannels.forEach(channelId => {
           this.subscribeToChannel(channelId)
         })
-        
+
         // Emit reconnection event if this was a reconnection
         if (wasReconnecting) {
           console.log('🔄 WebSocket reconnected, emitting reconnection event')
@@ -114,7 +114,7 @@ export class WebSocketService {
 
   private handleMessage(wsMsg: any) {
     console.log('📨 WebSocket message received:', wsMsg.type, wsMsg)
-    
+
     // Emitir evento customizado para listeners
     this.emit(wsMsg.type, wsMsg)
 
@@ -220,7 +220,7 @@ export class WebSocketService {
   private startHeartbeat() {
     // Limpar heartbeat anterior se existir
     this.stopHeartbeat()
-    
+
     // Enviar ping a cada 30 segundos (metade do timeout do servidor)
     this.heartbeatInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
@@ -280,9 +280,9 @@ export class WebSocketService {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
       return crypto.randomUUID()
     }
-    
+
     // Fallback para browsers sem crypto.randomUUID
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
       const r = Math.random() * 16 | 0
       const v = c === 'x' ? r : (r & 0x3 | 0x8)
       return v.toString(16)
@@ -290,12 +290,12 @@ export class WebSocketService {
   }
 
   // Enviar mensagem de chat
-  sendMessage(channelId: string, content: string) {
+  sendMessage(channelId: string, content: string, id?: string) {
     const user = useAuthStore.getState().user
     if (!user) return
 
     const messageData: MessageData = {
-      id: this.generateUUID(),
+      id: id || this.generateUUID(),
       content,
       authorId: user.id,
       username: user.username,
