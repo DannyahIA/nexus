@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { X, Copy, Check, Edit2, Camera } from 'lucide-react'
 
@@ -7,7 +9,11 @@ interface UserProfileModalProps {
 }
 
 export default function UserProfileModal({ onClose }: UserProfileModalProps) {
+  const { t } = useTranslation('profile')
+  const { t: tCommon } = useTranslation('common')
+  const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
   const [copied, setCopied] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [displayName, setDisplayName] = useState(user?.displayName || user?.username || '')
@@ -88,7 +94,7 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
               <button
                 onClick={handleCopyUsername}
                 className="p-1 hover:bg-dark-700 rounded transition-colors"
-                title="Copy username"
+                title={t('copyUsername')}
               >
                 {copied ? (
                   <Check className="w-3 h-3 text-green-400" />
@@ -108,30 +114,30 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
             <div className="bg-dark-900 rounded-lg p-4 mb-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-dark-300 mb-2">
-                  Display Name
+                  {t('displayName')}
                 </label>
                 <input
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
-                  placeholder="Your display name"
+                  placeholder={t('displayNamePlaceholder')}
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-dark-300 mb-2">
-                  Bio
+                  {t('bio')}
                 </label>
                 <textarea
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-600 resize-none"
-                  placeholder="Tell us about yourself..."
+                  placeholder={t('bioPlaceholder')}
                   rows={3}
                   maxLength={190}
                 />
-                <p className="text-xs text-dark-400 mt-1">{bio.length}/190</p>
+                <p className="text-xs text-dark-400 mt-1">{t('bioCharacterCount', { count: bio.length })}</p>
               </div>
 
               <div className="flex gap-2">
@@ -139,7 +145,7 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
                   onClick={handleSaveProfile}
                   className="flex-1 px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
                 >
-                  Save
+                  {tCommon('save')}
                 </button>
                 <button
                   onClick={() => {
@@ -149,7 +155,7 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
                   }}
                   className="flex-1 px-4 py-2 bg-dark-700 hover:bg-dark-600 rounded-lg transition-colors"
                 >
-                  Cancel
+                  {tCommon('cancel')}
                 </button>
               </div>
             </div>
@@ -157,7 +163,7 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
 
           {/* Status */}
           <div className="bg-dark-900 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-dark-300 mb-3">Status</h3>
+            <h3 className="text-sm font-semibold text-dark-300 mb-3">{t('status')}</h3>
             <div className="space-y-2">
               {['online', 'idle', 'dnd', 'offline'].map((status) => (
                 <button
@@ -175,7 +181,7 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
                         : 'bg-gray-500'
                     }`}
                   />
-                  <span className="text-sm capitalize">{status === 'dnd' ? 'Do Not Disturb' : status}</span>
+                  <span className="text-sm capitalize">{status === 'dnd' ? t('doNotDisturb') : t(status)}</span>
                 </button>
               ))}
             </div>
@@ -183,11 +189,14 @@ export default function UserProfileModal({ onClose }: UserProfileModalProps) {
 
           {/* Botões de Ação */}
           <div className="mt-4 space-y-2">
-            <button className="w-full px-4 py-2 bg-dark-700 hover:bg-dark-600 rounded-lg transition-colors text-left">
-              Switch Account
-            </button>
-            <button className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-left">
-              Logout
+            <button 
+              onClick={() => {
+                logout()
+                navigate('/login')
+              }}
+              className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-left font-medium"
+            >
+              {t('logout')}
             </button>
           </div>
         </div>

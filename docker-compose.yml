@@ -11,10 +11,21 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
     healthcheck:
-      test: ["CMD", "cqlsh", "-e", "describe cluster"]
+      test: [ "CMD", "cqlsh", "-e", "describe cluster" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  cassandra-init:
+    image: cassandra:4.1
+    container_name: nexus-cassandra-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/cassandra:/migrations:ro
+    entrypoint: [ "sh", "-c", "echo 'Running Cassandra migrations'; for f in /migrations/*.cql; do echo \"Applying $f\"; cqlsh cassandra -f \"$f\" || (sleep 5 && cqlsh cassandra -f \"$f\"); done" ]
+    restart: "no"
 
   nats:
     image: nats:2.10-alpine
@@ -41,24 +52,24 @@ services:
       - TURNSERVER_ENABLED=1
     restart: unless-stopped
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: nexus-postgres
-    ports:
-      - "5433:5432"
-    environment:
-      - POSTGRES_DB=nexus_billing
-      - POSTGRES_USER=nexus
-      - POSTGRES_PASSWORD=secret
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nexus"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - nexus-network
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: nexus-postgres
+  #   ports:
+  #     - "5433:5432"
+  #   environment:
+  #     - POSTGRES_DB=nexus_billing
+  #     - POSTGRES_USER=nexus
+  #     - POSTGRES_PASSWORD=secret
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  # healthcheck:
+  #   test: ["CMD-SHELL", "pg_isready -U nexus"]
+  #   interval: 10s
+  #   timeout: 5s
+  #   retries: 5
+  # networks:
+  #   - nexus-network
 
   redis:
     image: redis:7-alpine
@@ -68,7 +79,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,6 +92,8 @@ services:
     container_name: nexus-api
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - CASS_HOSTS=cassandra
       - CASS_KEYSPACE=nexus
@@ -104,6 +117,8 @@ services:
     container_name: nexus-websocket
     ports:
       - "8080:8080"
+    env_file:
+      - ./backend/.env
     environment:
       - CASS_HOSTS=cassandra
       - CASS_KEYSPACE=nexus
@@ -119,13 +134,32 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Media/SFU Service para WebRTC
+  media:
+    build:
+      context: ./backend
+      dockerfile: ./cmd/media/Dockerfile
+    container_name: nexus-media-sfu
+    ports:
+      - "8083:8083"
+      - "55000-55100:50000-50100/udp"  # Portas UDP para RTP (range menor para evitar conflitos)
+    env_file:
+      - ./backend/.env
+    environment:
+      - NATS_URL=nats://nats:4222
+      - JWT_SECRET=your-secret-key-here-change-in-production
+    depends_on:
+      nats:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   cassandra_data:
     driver: local
   nats_data:
     driver: local
-  postgres_data:
-    driver: local
+#  postgres_data:
+#    driver: local
   redis_data:
     driver: local
 

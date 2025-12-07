@@ -1,0 +1,253 @@
+# Nexus API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-api
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nexus-api
+    app.kubernetes.io/instance: nexus-api
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 3  # Múltiplas réplicas para alta disponibilidade
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-api
+      app.kubernetes.io/instance: nexus-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-api
+        app.kubernetes.io/instance: nexus-api
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: api
+        image: nexus/api:dev  # Substituir pela imagem do registry
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: CASS_HOSTS
+          value: "nexus-cassandra"
+        - name: CASS_KEYSPACE
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: CASS_KEYSPACE
+        - name: NATS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: NATS_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: REDIS_URL
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: nexus-secrets
+              key: JWT_SECRET
+        - name: ENV
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: LOG_LEVEL
+        - name: API_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: API_PORT
+        - name: CORS_ALLOWED_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: CORS_ALLOWED_ORIGINS
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: uploads
+          mountPath: /app/uploads
+      volumes:
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: nexus-uploads-pvc
+---
+# PVC para uploads
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-uploads-pvc
+  namespace: nexus
+spec:
+  accessModes:
+    - ReadWriteMany  # Múltiplos pods podem escrever
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Service para API
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-api
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nexus-api
+    app.kubernetes.io/instance: nexus-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  selector:
+    app.kubernetes.io/name: nexus-api
+    app.kubernetes.io/instance: nexus-api
+---
+# Nexus WebSocket Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-websocket
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nexus-websocket
+    app.kubernetes.io/instance: nexus-websocket
+    app.kubernetes.io/component: websocket
+spec:
+  replicas: 3  # Múltiplas réplicas para WebSocket
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-websocket
+      app.kubernetes.io/instance: nexus-websocket
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-websocket
+        app.kubernetes.io/instance: nexus-websocket
+        app.kubernetes.io/component: websocket
+    spec:
+      containers:
+      - name: websocket
+        image: nexus/websocket:dev  # Substituir pela imagem do registry
+        ports:
+        - containerPort: 8080
+          name: websocket
+        env:
+        - name: CASS_HOSTS
+          value: "nexus-cassandra"
+        - name: CASS_KEYSPACE
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: CASS_KEYSPACE
+        - name: NATS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: NATS_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: REDIS_URL
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: nexus-secrets
+              key: JWT_SECRET
+        - name: ENV
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: LOG_LEVEL
+        - name: WS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-config
+              key: WS_PORT
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+# Service para WebSocket
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-websocket
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nexus-websocket
+    app.kubernetes.io/instance: nexus-websocket
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: websocket
+  selector:
+    app.kubernetes.io/name: nexus-websocket
+    app.kubernetes.io/instance: nexus-websocket

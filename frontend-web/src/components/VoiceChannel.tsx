@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Volume2, Settings, Grid, User, Activity } from 'lucide-react'
+                                                import { useState, useEffect, useRef, memo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, Grid, User, Activity } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
 import { useAuthStore } from '../store/authStore'
 import { useVoiceStore } from '../store/voiceStore'
 import VideoGrid from './VideoGrid'
 import HealthCheckPanel from './HealthCheckPanel'
 import { ViewMode } from '../store/voiceStore'
+import FloatingLines from './FloatingLinesBackground'
 
 interface VoiceChannelProps {
   channelId: string
@@ -13,7 +15,28 @@ interface VoiceChannelProps {
   onLeave: () => void
 }
 
-export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceChannelProps) {
+const WAVES_CONFIG: ("top" | "middle" | "bottom")[] = ['top', 'middle', 'bottom'];
+
+const BackgroundLayer = memo(() => {
+  return (
+    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+      <FloatingLines
+        enabledWaves={WAVES_CONFIG}
+        lineCount={3}
+        lineDistance={50}
+        bendRadius={5.0}
+        bendStrength={-0.5}
+        interactive={false}
+        parallax={true}
+      />
+      <div className="absolute inset-0 bg-radial-gradient from-transparent via-black/40 to-black pointer-events-none" />
+    </div>
+  )
+});
+BackgroundLayer.displayName = 'BackgroundLayer';
+
+export default function VoiceChannel({ channelId, channelName: _channelName, onLeave }: VoiceChannelProps) {
+  const { t } = useTranslation('chat')
   const user = useAuthStore((state) => state.user)
   const voiceStore = useVoiceStore()
   const [isConnected, setIsConnected] = useState(false)
@@ -24,27 +47,19 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [showHealthCheck, setShowHealthCheck] = useState(false)
-  
-  // Track previous view mode before screen share (Requirement 4.5)
+
+  // Track previous view mode before screen share
   const previousViewModeRef = useRef<ViewMode>('gallery')
 
   useEffect(() => {
-    // Obter stream local já existente (foi criado no ChatScreen)
     const stream = webrtcService.getLocalStream()
     if (stream) {
       setLocalStream(stream)
       setIsConnected(true)
     }
 
-    // Listeners para eventos WebRTC
-    const handleLocalStream = (stream: MediaStream) => {
-      setLocalStream(stream)
-    }
-
+    const handleLocalStream = (stream: MediaStream) => setLocalStream(stream)
     const handleRemoteStream = ({ userId, stream }: { userId: string; stream: MediaStream }) => {
-      console.log('Remote stream received from', userId)
-
-      // Store the stream separately from voiceStore
       setRemoteStreams(prev => {
         const newMap = new Map(prev)
         newMap.set(userId, stream)
@@ -53,10 +68,6 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     }
 
     const handleUserJoined = ({ userId, username }: { userId: string; username: string }) => {
-      console.log('User joined:', username, 'userId:', userId)
-      console.log('Current voiceUsers before add:', voiceStore.voiceUsers)
-
-      // Add user to voiceStore with username from event
       voiceStore.addVoiceUser({
         userId,
         username,
@@ -64,17 +75,10 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
         isSpeaking: false,
         isVideoEnabled: false,
       })
-
-      console.log('Current voiceUsers after add:', voiceStore.voiceUsers)
     }
 
     const handleUserLeft = ({ userId }: { userId: string }) => {
-      console.log('User left:', userId)
-
-      // Remove user from voiceStore
       voiceStore.removeVoiceUser(userId)
-
-      // Clean up remote stream
       setRemoteStreams(prev => {
         const newMap = new Map(prev)
         newMap.delete(userId)
@@ -83,117 +87,63 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
     }
 
     const handleMuteStatusChanged = ({ userId, isMuted }: { userId: string; isMuted: boolean }) => {
-      console.log('Mute status changed:', userId, isMuted)
-
-      // Update user in voiceStore
       voiceStore.updateVoiceUser(userId, { isMuted })
     }
 
     const handleVideoStatusChanged = ({ userId, isVideoEnabled }: { userId: string; isVideoEnabled: boolean }) => {
-      console.log('Video status changed:', userId, isVideoEnabled)
-
-      // Update user in voiceStore
       voiceStore.updateVoiceUser(userId, { isVideoEnabled })
     }
 
     const handleVideoStateChange = (state: { isEnabled: boolean; type: 'camera' | 'screen' | 'none' }) => {
-      console.log('Local video state changed:', state)
-
-      // Update local video state
       setIsVideoEnabled(state.isEnabled)
       setIsScreenSharing(state.type === 'screen')
-
-      // Update voice store with new video state
       voiceStore.setVideoState(state)
-
-      // Update screen share user tracking
       if (state.type === 'screen') {
         voiceStore.setScreenShareUser(user?.id || null)
       } else if (isScreenSharing) {
-        // Only clear if we were previously screen sharing
         voiceStore.setScreenShareUser(null)
       }
     }
 
     const handleScreenShareStarted = () => {
-      console.log('Screen share started')
       setIsScreenSharing(true)
-      if (user?.id) {
-        voiceStore.setScreenShareUser(user.id)
-      }
-      
-      // Requirement 4.4: Automatically switch to spotlight mode when screen share starts
+      if (user?.id) voiceStore.setScreenShareUser(user.id)
       previousViewModeRef.current = voiceStore.viewMode
       if (voiceStore.viewMode !== 'spotlight') {
-        console.log('📺 Switching to spotlight mode for screen share')
         voiceStore.setViewMode('spotlight')
       }
     }
 
     const handleScreenShareStopped = () => {
-      console.log('Screen share stopped')
       setIsScreenSharing(false)
       voiceStore.setScreenShareUser(null)
-      
-      // Requirement 4.5: Return to previous view mode when screen share ends
-      console.log('📺 Restoring previous view mode:', previousViewModeRef.current)
       voiceStore.setViewMode(previousViewModeRef.current)
     }
 
-    const handleVideoError = ({ error }: { error: string }) => {
-      console.error('Video error:', error)
-      alert(error)
-    }
-
+    const handleVideoError = ({ error }: { error: string }) => alert(error)
     const handleConnectionQualityChange = ({ userId, quality }: { userId: string; quality: any }) => {
-      console.log('Connection quality changed:', userId, quality.quality)
-
-      // Update connection quality in voiceStore
       voiceStore.setConnectionQuality(userId, quality)
     }
-
     const handleReconnecting = ({ userId, attempt, maxAttempts }: { userId: string; attempt: number; maxAttempts: number }) => {
-      console.log(`User ${userId} reconnecting: attempt ${attempt}/${maxAttempts}`)
-
-      // Update reconnection state in voiceStore
       voiceStore.setUserReconnecting(userId, attempt, maxAttempts)
     }
-
     const handleReconnectionFailed = ({ userId }: { userId: string }) => {
-      console.log(`User ${userId} reconnection failed`)
-
-      // Clear reconnection state
       voiceStore.clearUserReconnecting(userId)
     }
-
     const handleVoiceActivity = ({ userId, isActive }: { userId: string; isActive: boolean }) => {
       if (userId === 'local') {
-        // Only show speaking indicator if not muted
         setIsLocalSpeaking(isActive && !isMuted)
       } else {
-        // Only show speaking indicator if remote user is not muted
         const voiceUser = voiceStore.voiceUsers.find(u => u.userId === userId)
         const shouldShowSpeaking = isActive && !voiceUser?.isMuted
         voiceStore.updateVoiceUser(userId, { isSpeaking: shouldShowSpeaking })
       }
     }
-
     const handleActiveSpeakerChange = ({ activeSpeaker }: { previousSpeaker: string | null; activeSpeaker: string | null }) => {
-      console.log('Active speaker changed to:', activeSpeaker)
-      
-      // Convert 'local' to actual user ID for consistency
       const speakerId = activeSpeaker === 'local' ? (user?.id || null) : activeSpeaker
-      
-      // Update voice store with new active speaker
       voiceStore.setActiveSpeaker(speakerId)
     }
-
-    const handleMuteStateChange = ({ isMuted }: { isMuted: boolean }) => {
-      console.log('Local mute state changed:', isMuted)
-      
-      // Update local mute state
-      setIsMuted(isMuted)
-    }
+    const handleMuteStateChange = ({ isMuted }: { isMuted: boolean }) => setIsMuted(isMuted)
 
     webrtcService.on('local-stream', handleLocalStream)
     webrtcService.on('remote-stream', handleRemoteStream)
@@ -229,7 +179,6 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
       webrtcService.off('voice-activity', handleVoiceActivity)
       webrtcService.off('active-speaker-change', handleActiveSpeakerChange)
       webrtcService.off('mute-state-change', handleMuteStateChange)
-      // NÃO chamar leaveVoiceChannel aqui - deixar o ChatScreen gerenciar
     }
   }, [channelId, user?.id])
 
@@ -240,34 +189,23 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
 
   const handleToggleVideo = async () => {
     try {
-      // Requirement 5.1: Video toggle button reflects camera/screen state
-      // State is managed by WebRTC Service and synced via events
       await webrtcService.toggleVideo()
-      
-      // Update stream local
       const stream = webrtcService.getLocalStream()
       setLocalStream(stream)
     } catch (error) {
       console.error('Failed to toggle video:', error)
-      // Error will be handled by video-error event listener
     }
   }
 
   const handleShareScreen = async () => {
     try {
-      // Requirement 5.2, 5.3: Screen share button with distinct active state
-      // State is managed by WebRTC Service and synced via events
       if (isScreenSharing) {
-        // Stop screen sharing and return to camera
         await webrtcService.stopScreenShare()
-        // State will be updated by screen-share-stopped and video-state-change events
       } else {
         await webrtcService.shareScreen()
-        // State will be updated by screen-share-started and video-state-change events
       }
     } catch (error) {
       console.error('Failed to toggle screen share:', error)
-      // Error will be handled by video-error event listener
     }
   }
 
@@ -277,95 +215,73 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
   }
 
   const handleViewModeToggle = () => {
-    // Toggle between gallery and spotlight modes
     const newMode: ViewMode = voiceStore.viewMode === 'gallery' ? 'spotlight' : 'gallery'
-    console.log('📺 Toggling view mode to:', newMode)
-    
-    // Update previous view mode ref if not currently screen sharing
     if (!isScreenSharing) {
       previousViewModeRef.current = newMode
     }
-    
     voiceStore.setViewMode(newMode)
   }
 
   if (!isConnected) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-dark-400">Conectando ao canal de voz...</p>
+      <div className="flex items-center justify-center h-full bg-black text-white relative overflow-hidden">
+        <BackgroundLayer />
+        <div className="text-center relative z-10">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+          <p className="text-white/60">{t('connectingToVoice')}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-dark-900">
-      {/* Header */}
-      <div className="h-14 bg-dark-800 border-b border-dark-700 flex items-center px-4">
-        <Volume2 className="w-5 h-5 text-green-500 mr-3" />
-        <h2 className="font-semibold">{channelName}</h2>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-sm text-dark-400">
-            {voiceStore.voiceUsers.length + 1} {voiceStore.voiceUsers.length === 0 ? 'pessoa' : 'pessoas'}
-          </span>
-        </div>
+    <div className="flex-1 flex flex-col bg-black relative overflow-hidden">
+      {/* Background */}
+      <BackgroundLayer />
+
+      {/* Video Grid - Relative z-10 to stay above background */}
+      <div className="flex-1 min-h-0 relative z-10 p-4 pb-24">
+        <VideoGrid
+          localStream={localStream}
+          remoteStreams={remoteStreams}
+          voiceUsers={voiceStore.voiceUsers}
+          currentUserId={user?.id || ''}
+          currentUsername={user?.username || 'User'}
+          viewMode={voiceStore.viewMode}
+          activeSpeakerId={voiceStore.activeSpeakerId}
+          screenShareUserId={voiceStore.screenShareUserId}
+          connectionQualities={voiceStore.connectionQualities}
+          isLocalMuted={isMuted}
+          isLocalVideoEnabled={isVideoEnabled}
+          isLocalSpeaking={isLocalSpeaking}
+          isLocalScreenSharing={isScreenSharing}
+        />
       </div>
 
-      {/* Video Grid - Using new VideoGrid component */}
-      <VideoGrid
-        localStream={localStream}
-        remoteStreams={remoteStreams}
-        voiceUsers={voiceStore.voiceUsers}
-        currentUserId={user?.id || ''}
-        currentUsername={user?.username || 'User'}
-        viewMode={voiceStore.viewMode}
-        activeSpeakerId={voiceStore.activeSpeakerId}
-        screenShareUserId={voiceStore.screenShareUserId}
-        connectionQualities={voiceStore.connectionQualities}
-        isLocalMuted={isMuted}
-        isLocalVideoEnabled={isVideoEnabled}
-        isLocalSpeaking={isLocalSpeaking}
-        isLocalScreenSharing={isScreenSharing}
-      />
-
-      {/* Controls - Requirements 5.1, 5.2, 5.3 */}
-      <div className="h-20 bg-dark-800 border-t border-dark-700 flex items-center justify-center gap-4 px-4">
+      {/* Floating Control Bar - "Google Meet Dock" style */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-center gap-3 px-6 py-4 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl transition-all duration-300 hover:bg-black/70 hover:scale-[1.02]">
         {/* Mute Toggle */}
         <button
           onClick={handleToggleMute}
-          className={`control-button ${isMuted ? 'control-button-muted' : 'bg-dark-700 hover:bg-dark-600'}`}
-          title={isMuted ? 'Unmute microphone (Ctrl+D)' : 'Mute microphone (Ctrl+D)'}
-          aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          className={`p-3.5 rounded-xl transition-all duration-200 border ${isMuted
+            ? 'bg-red-500/20 text-red-500 border-red-500/30 hover:bg-red-500/30'
+            : 'bg-white/10 text-white/90 border-white/5 hover:bg-white/20'
+            }`}
+          title={isMuted ? t('unmuteMicrophone') : t('muteMicrophone')}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {/* Video Toggle - Requirement 5.1: Reflects camera/screen state */}
+        {/* Video Toggle */}
         <button
           onClick={handleToggleVideo}
-          className={`control-button ${
-            !isVideoEnabled
-              ? 'control-button-video-off'
-              : voiceStore.videoState.type === 'screen'
-              ? 'bg-blue-600 hover:bg-blue-700'
-              : 'bg-dark-700 hover:bg-dark-600'
+          className={`p-3.5 rounded-xl transition-all duration-200 border ${!isVideoEnabled
+            ? 'bg-red-500/20 text-red-500 border-red-500/30 hover:bg-red-500/30'
+            : voiceStore.videoState.type === 'screen'
+              ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500'
+              : 'bg-white/10 text-white/90 border-white/5 hover:bg-white/20'
             }`}
-          title={
-            voiceStore.videoState.type === 'screen'
-              ? 'Turn off screen share (Ctrl+E)'
-              : isVideoEnabled
-              ? 'Turn off camera (Ctrl+E)'
-              : 'Turn on camera (Ctrl+E)'
-          }
-          aria-label={
-            voiceStore.videoState.type === 'screen'
-              ? 'Screen sharing active'
-              : isVideoEnabled
-              ? 'Camera on'
-              : 'Camera off'
-          }
+          title={!isVideoEnabled ? t('turnOnCamera') : t('turnOffCamera')}
         >
           {voiceStore.videoState.type === 'screen' ? (
             <Monitor className="w-5 h-5" />
@@ -374,92 +290,61 @@ export default function VoiceChannel({ channelId, channelName, onLeave }: VoiceC
           ) : (
             <VideoOff className="w-5 h-5" />
           )}
-          {/* Visual indicator for screen share via video button */}
-          {voiceStore.videoState.type === 'screen' && (
-            <span className="indicator-dot bg-blue-400" />
-          )}
         </button>
 
-        {/* Screen Share Toggle - Requirements 5.2, 5.3: Distinct active state */}
+        {/* Screen Share */}
         <button
           onClick={handleShareScreen}
-          className={`control-button ${isScreenSharing ? 'control-button-screen-sharing' : 'bg-dark-700 hover:bg-dark-600'}`}
-          title={
-            isScreenSharing 
-              ? 'Stop sharing screen' 
-              : 'Share your screen'
-          }
-          aria-label={
-            isScreenSharing 
-              ? 'Stop screen sharing' 
-              : 'Start screen sharing'
-          }
+          className={`p-3.5 rounded-xl transition-all duration-200 border ${isScreenSharing
+            ? 'bg-green-600 text-white border-green-500 hover:bg-green-500 shadow-lg shadow-green-900/40'
+            : 'bg-white/10 text-white/90 border-white/5 hover:bg-white/20'
+            }`}
+          title={t('shareYourScreen')}
         >
           <Monitor className="w-5 h-5" />
-          {/* Pulsing indicator when screen sharing is active */}
-          {isScreenSharing && (
-            <span className="indicator-dot bg-green-400" />
-          )}
         </button>
 
         {/* View Mode Toggle */}
         <button
           onClick={handleViewModeToggle}
           disabled={isScreenSharing}
-          className={`view-mode-toggle ${voiceStore.viewMode === 'spotlight' && !isScreenSharing ? 'view-mode-toggle-active' : ''}`}
-          title={
-            isScreenSharing 
-              ? 'View mode locked during screen share'
-              : voiceStore.viewMode === 'gallery' 
-              ? 'Switch to Spotlight mode' 
-              : 'Switch to Gallery mode'
-          }
-          aria-label={
-            isScreenSharing 
-              ? 'View mode locked'
-              : voiceStore.viewMode === 'gallery' 
-              ? 'Switch to Spotlight mode' 
-              : 'Switch to Gallery mode'
-          }
+          className={`p-3.5 rounded-xl transition-all duration-200 border bg-white/10 text-white/90 border-white/5 hover:bg-white/20 ${isScreenSharing ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title={voiceStore.viewMode === 'gallery' ? t('switchToSpotlightMode') : t('switchToGalleryMode')}
         >
-          {voiceStore.viewMode === 'gallery' ? (
-            <User className="w-5 h-5" />
-          ) : (
-            <Grid className="w-5 h-5" />
-          )}
+          {voiceStore.viewMode === 'gallery' ? <User className="w-5 h-5" /> : <Grid className="w-5 h-5" />}
         </button>
 
-        {/* Health Check */}
-        <button
-          onClick={() => setShowHealthCheck(true)}
-          className="control-button bg-dark-700 hover:bg-dark-600"
-          title="Connection health check"
-          aria-label="Connection health check"
-        >
-          <Activity className="w-5 h-5" />
-        </button>
+        <div className="w-[1px] h-8 bg-white/10 mx-2" />
 
-        {/* Settings */}
-        <button
-          className="control-button bg-dark-700 hover:bg-dark-600"
-          title="Audio and video settings"
-          aria-label="Audio and video settings"
-        >
-          <Settings className="w-5 h-5" />
-        </button>
-
-        {/* Disconnect */}
+        {/* End Call - Distinct styling */}
         <button
           onClick={handleLeave}
-          className="control-button bg-red-600 hover:bg-red-700 ml-4"
-          title="Leave voice channel"
-          aria-label="Leave voice channel"
+          className="p-3.5 px-6 rounded-xl bg-red-600 hover:bg-red-500 text-white border border-red-500 transition-all duration-200 shadow-lg shadow-red-900/40 flex items-center gap-2 font-medium"
+          title={t('leaveVoiceChannel')}
         >
           <PhoneOff className="w-5 h-5" />
         </button>
+
+        {/* Secondary Actions (Smaller) */}
+        <div className="absolute right-[-60px] top-1/2 -translate-y-1/2 flex flex-col gap-2 opacity-0 hover:opacity-100 transition-opacity">
+          {/* Placeholder for settings if needed, hidden for minimal look by default unless hovered */}
+        </div>
       </div>
 
-      {/* Health Check Panel (Requirement 9.3) */}
+      {/* Top Info Bar (Channel Name, Health) */}
+      <div className="absolute top-4 left-4 z-50 flex items-center gap-3">
+        <div className="px-4 py-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="text-sm font-medium text-white/90">{_channelName || "Voice Channel"}</span>
+        </div>
+        <button
+          onClick={() => setShowHealthCheck(true)}
+          className="p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-white/60 hover:text-white transition-colors"
+        >
+          <Activity className="w-4 h-4" />
+        </button>
+      </div>
+
       {showHealthCheck && (
         <HealthCheckPanel onClose={() => setShowHealthCheck(false)} />
       )}

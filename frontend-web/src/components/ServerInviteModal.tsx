@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X, Copy, Check, UserPlus } from 'lucide-react'
 import { api } from '../services/api'
 
@@ -14,6 +15,7 @@ interface ServerInviteModalProps {
 }
 
 export default function ServerInviteModal({ isOpen, onClose, server, mode }: ServerInviteModalProps) {
+  const { t } = useTranslation('chat')
   const [copied, setCopied] = useState(false)
   const [inviteCode, setInviteCode] = useState('')
   const [joining, setJoining] = useState(false)
@@ -35,7 +37,7 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
 
   const handleJoinServer = async () => {
     if (!inviteCode.trim()) {
-      setError('Digite um código de convite')
+      setError(t('enterInviteCode2'))
       return
     }
 
@@ -44,11 +46,11 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
 
     try {
       await api.joinServer(inviteCode.trim())
-      alert('Você entrou no servidor com sucesso!')
+      alert(t('joinedSuccessfully'))
       window.location.reload() // Recarregar para atualizar lista de servidores
     } catch (err: any) {
       console.error('Failed to join server:', err)
-      setError(err.response?.data || 'Código de convite inválido')
+      setError(err.response?.data || t('invalidInviteCode'))
     } finally {
       setJoining(false)
     }
@@ -73,15 +75,15 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                 {server.name.charAt(0).toUpperCase()}
               </div>
               <div>
-                <h2 className="text-xl font-bold text-white">Convidar para {server.name}</h2>
-                <p className="text-sm text-dark-400">Compartilhe este link com seus amigos</p>
+                <h2 className="text-xl font-bold text-white">{t('inviteToServer', { serverName: server.name })}</h2>
+                <p className="text-sm text-dark-400">{t('shareThisLink')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-dark-300 mb-2">
-                  Link de Convite
+                  {t('inviteLink')}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -102,12 +104,12 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                     {copied ? (
                       <>
                         <Check className="w-4 h-4" />
-                        Copiado!
+                        {t('copied')}
                       </>
                     ) : (
                       <>
                         <Copy className="w-4 h-4" />
-                        Copiar
+                        {t('copy')}
                       </>
                     )}
                   </button>
@@ -121,10 +123,10 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-white mb-1">
-                      Código: <span className="font-mono text-primary-400">{server.inviteCode}</span>
+                      {t('code')}: <span className="font-mono text-primary-400">{server.inviteCode}</span>
                     </p>
                     <p className="text-xs text-dark-400">
-                      Este link nunca expira e pode ser usado por qualquer pessoa.
+                      {t('linkNeverExpires')}
                     </p>
                   </div>
                 </div>
@@ -138,16 +140,16 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
               <div className="w-12 h-12 bg-green-600 rounded-lg flex items-center justify-center mx-auto mb-4">
                 <UserPlus className="w-6 h-6" />
               </div>
-              <h2 className="text-xl font-bold text-white text-center">Entrar em um Servidor</h2>
+              <h2 className="text-xl font-bold text-white text-center">{t('joinServer')}</h2>
               <p className="text-sm text-dark-400 text-center mt-2">
-                Digite o código de convite abaixo
+                {t('enterInviteCode')}
               </p>
             </div>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-dark-300 mb-2">
-                  Código de Convite
+                  {t('inviteCode')}
                 </label>
                 <input
                   type="text"
@@ -161,7 +163,7 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                       handleJoinServer()
                     }
                   }}
-                  placeholder="Ex: ABC12345"
+                  placeholder={t('inviteCodePlaceholder')}
                   className="w-full px-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600"
                 />
                 {error && (
@@ -174,12 +176,12 @@ export default function ServerInviteModal({ isOpen, onClose, server, mode }: Ser
                 disabled={!inviteCode.trim() || joining}
                 className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
               >
-                {joining ? 'Entrando...' : 'Entrar no Servidor'}
+                {joining ? t('joining') : t('joinServerButton')}
               </button>
 
               <div className="bg-dark-900 p-4 rounded-lg">
                 <p className="text-xs text-dark-400">
-                  <strong className="text-white">Dica:</strong> Os códigos de convite geralmente têm 8 caracteres e são fornecidos pelos administradores do servidor.
+                  <strong className="text-white">{t('tip')}:</strong> {t('inviteCodeTip')}
                 </p>
               </div>
             </div>

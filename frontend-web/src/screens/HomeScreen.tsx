@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
 import { Users, Inbox, MessageSquare, MoreVertical, X, Check } from 'lucide-react'
@@ -8,11 +9,12 @@ import { api } from '../services/api'
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
 
 export default function HomeScreen() {
+  const { t } = useTranslation('friends')
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('online')
   const [searchQuery, setSearchQuery] = useState('')
   const [sendingRequest, setSendingRequest] = useState(false)
-  
+
   const friends = useFriendsStore((state) => state.friends)
   const friendRequests = useFriendsStore((state) => state.friendRequests)
   const user = useAuthStore((state) => state.user)
@@ -30,11 +32,11 @@ export default function HomeScreen() {
     setSendingRequest(true)
     try {
       await api.sendFriendRequest(searchQuery.trim())
-      alert(`Solicitação de amizade enviada para ${searchQuery}!`)
+      alert(t('addFriend.requestSent', { username: searchQuery }))
       setSearchQuery('')
     } catch (error: any) {
       console.error('Failed to send friend request:', error)
-      const errorMsg = error.response?.data || error.message || 'Erro ao enviar solicitação'
+      const errorMsg = error.response?.data || error.message || t('addFriend.error')
       alert(errorMsg)
     } finally {
       setSendingRequest(false)
@@ -44,8 +46,6 @@ export default function HomeScreen() {
   const handleAcceptRequest = async (fromUserId: string) => {
     try {
       await api.acceptFriendRequest(fromUserId)
-      // Recarregar amigos e solicitações
-      window.location.reload() // Temporário - recarregar página
     } catch (error) {
       console.error('Failed to accept friend request:', error)
     }
@@ -54,117 +54,115 @@ export default function HomeScreen() {
   const handleRejectRequest = async (fromUserId: string) => {
     try {
       await api.rejectFriendRequest(fromUserId)
-      // Recarregar solicitações
-      window.location.reload() // Temporário - recarregar página
     } catch (error) {
       console.error('Failed to reject friend request:', error)
     }
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-dark-900">
-      {/* Header */}
-      <div className="h-12 px-4 flex items-center border-b border-dark-700 shadow-md">
-        <Users className="w-5 h-5 mr-3 text-dark-400" />
-        <h1 className="font-semibold text-white">Amigos</h1>
+    <div className="flex-1 flex flex-col bg-transparent h-full overflow-hidden">
+      <div className="h-12 px-6 flex items-center border-b border-white/5 shadow-sm bg-black/10 backdrop-blur-md">
+        <div className="flex items-center gap-3 mr-6">
+          <Users className="w-5 h-5 text-purple-400" />
+          <h1 className="font-bold text-white tracking-wide">{t('title')}</h1>
+        </div>
 
-        {/* Separador */}
-        <div className="w-px h-6 bg-dark-700 mx-4" />
+        <div className="w-px h-5 bg-white/10 mx-4" />
 
-        {/* Tabs */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab('online')}
-            className={`px-2 py-1 rounded text-sm font-medium ${
-              activeTab === 'online'
-                ? 'bg-dark-700 text-white'
-                : 'text-dark-400 hover:text-white hover:bg-dark-800'
-            }`}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'online'
+              ? 'bg-white/10 text-white shadow-sm'
+              : 'text-white/50 hover:text-white hover:bg-white/5'
+              }`}
           >
-            Disponivel
+            {t('tabs.online')}
           </button>
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-2 py-1 rounded text-sm font-medium ${
-              activeTab === 'all'
-                ? 'bg-dark-700 text-white'
-                : 'text-dark-400 hover:text-white hover:bg-dark-800'
-            }`}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'all'
+              ? 'bg-white/10 text-white shadow-sm'
+              : 'text-white/50 hover:text-white hover:bg-white/5'
+              }`}
           >
-            Todos
+            {t('tabs.all')}
           </button>
-          <button
+          {pendingRequests && pendingRequests.length > 0 && (<button
             onClick={() => setActiveTab('pending')}
-            className={`px-2 py-1 rounded text-sm font-medium ${
-              activeTab === 'pending'
-                ? 'bg-dark-700 text-white'
-                : 'text-dark-400 hover:text-white hover:bg-dark-800'
-            }`}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${activeTab === 'pending'
+              ? 'bg-white/10 text-white shadow-sm'
+              : 'text-white/50 hover:text-white hover:bg-white/5'
+              }`}
           >
-            Pendentes
+            {t('tabs.pending')}
             {pendingRequests.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-red-600 text-white text-xs rounded-full">
+              <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] rounded-full font-bold shadow-lg shadow-red-500/20">
                 {pendingRequests.length}
               </span>
             )}
-          </button>
+          </button>)}
           <button
             onClick={() => setActiveTab('add')}
-            className={`px-2 py-1 rounded text-sm font-medium ${
-              activeTab === 'add'
-                ? 'bg-green-600 text-white'
-                : 'text-green-500 hover:text-green-400'
-            }`}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'add'
+              ? 'bg-green-500/20 text-green-400 shadow-sm shadow-green-500/10'
+              : 'text-green-500 hover:text-green-400 hover:bg-green-500/10'
+              }`}
           >
-            Adicionar Amigo
+            {t('tabs.addFriend')}
           </button>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 flex">
-        {/* Painel Principal */}
-        <div className="flex-1 overflow-y-auto">
-          {/* Tab: Online */}
+      <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
           {activeTab === 'online' && (
-            <div className="p-6">
-              <h2 className="text-xs font-semibold text-dark-400 uppercase mb-4">
-                Online — {onlineFriends.length}
+            <div className="max-w-4xl mx-auto">
+              <h2 className="text-xs font-bold text-white/40 uppercase mb-4 tracking-wider">
+                {t('sections.onlineTitle', { count: onlineFriends.length })}
               </h2>
               {onlineFriends.length === 0 ? (
-                <div className="text-center py-12 text-dark-400">
-                  <p>Nenhum amigo online</p>
+                <div className="flex flex-col items-center justify-center py-20 text-white/20">
+                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
+                    <Users className="w-8 h-8 opacity-50" />
+                  </div>
+                  <p className="font-medium">{t('empty.noOnlineFriends')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {onlineFriends.map((friend) => (
                     <div
                       key={friend.userId}
-                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-dark-800 group"
+                      className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/5 transition-all duration-200 group backdrop-blur-sm"
                     >
                       <div className="relative">
-                        <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
+                        <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
                           {friend.username.charAt(0).toUpperCase()}
                         </div>
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-dark-900 ${
-                          friend.status === 'online' ? 'bg-green-500' :
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[#1a1a1a] ${friend.status === 'online' ? 'bg-green-500' :
                           friend.status === 'idle' ? 'bg-yellow-500' : 'bg-gray-500'
-                        }`} />
+                          }`} />
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-white">{friend.username}</p>
-                        <p className="text-sm text-dark-400">{friend.status}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-white group-hover:text-purple-300 transition-colors">{friend.username}</p>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/50 font-medium uppercase tracking-wide">
+                            {t(`status.${friend.status}`)}
+                          </span>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => friend.dmChannelId && handleDMClick(friend.dmChannelId)}
-                        className="p-2 rounded-full bg-dark-700 hover:bg-dark-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Enviar Mensagem"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 rounded-full bg-dark-700 hover:bg-dark-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => friend.dmChannelId && handleDMClick(friend.dmChannelId)}
+                          className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all transform hover:scale-110 shadow-lg"
+                          title={t('actions.sendMessage')}
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                        <button className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all transform hover:scale-110 shadow-lg">
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -172,47 +170,50 @@ export default function HomeScreen() {
             </div>
           )}
 
-          {/* Tab: All */}
           {activeTab === 'all' && (
-            <div className="p-6">
-              <h2 className="text-xs font-semibold text-dark-400 uppercase mb-4">
-                Todos os Amigos — {friends.length}
+            <div className="max-w-4xl mx-auto">
+              <h2 className="text-xs font-bold text-white/40 uppercase mb-4 tracking-wider">
+                {t('sections.allFriendsTitle', { count: friends.length })}
               </h2>
               {friends.length === 0 ? (
-                <div className="text-center py-12 text-dark-400">
-                  <p>Você ainda não tem amigos</p>
-                  <p className="text-sm mt-2">Que tal adicionar alguém?</p>
+                <div className="flex flex-col items-center justify-center py-20 text-white/20">
+                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
+                    <Users className="w-8 h-8 opacity-50" />
+                  </div>
+                  <p className="font-medium">{t('empty.noFriends')}</p>
+                  <p className="text-sm mt-2 opacity-60">{t('empty.noFriendsSubtext')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {friends.map((friend) => (
                     <div
                       key={friend.userId}
-                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-dark-800 group"
+                      className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/5 transition-all duration-200 group backdrop-blur-sm"
                     >
                       <div className="relative">
-                        <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
+                        <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
                           {friend.username.charAt(0).toUpperCase()}
                         </div>
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-dark-900 ${
-                          friend.status === 'online' ? 'bg-green-500' :
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[#1a1a1a] ${friend.status === 'online' ? 'bg-green-500' :
                           friend.status === 'idle' ? 'bg-yellow-500' :
-                          friend.status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
-                        }`} />
+                            friend.status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
+                          }`} />
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-white">{friend.username}</p>
-                        <p className="text-sm text-dark-400">{friend.email}</p>
+                        <p className="font-bold text-white group-hover:text-purple-300 transition-colors">{friend.username}</p>
+                        <p className="text-xs text-white/40 font-medium">{friend.email}</p>
                       </div>
-                      <button
-                        onClick={() => friend.dmChannelId && handleDMClick(friend.dmChannelId)}
-                        className="p-2 rounded-full bg-dark-700 hover:bg-dark-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 rounded-full bg-dark-700 hover:bg-dark-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => friend.dmChannelId && handleDMClick(friend.dmChannelId)}
+                          className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all transform hover:scale-110 shadow-lg"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                        <button className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all transform hover:scale-110 shadow-lg">
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -220,45 +221,48 @@ export default function HomeScreen() {
             </div>
           )}
 
-          {/* Tab: Pending */}
           {activeTab === 'pending' && (
-            <div className="p-6">
-              <h2 className="text-xs font-semibold text-dark-400 uppercase mb-4">
-                Solicitações Pendentes — {pendingRequests.length}
+            <div className="max-w-4xl mx-auto">
+              <h2 className="text-xs font-bold text-white/40 uppercase mb-4 tracking-wider">
+                {t('sections.pendingRequestsTitle', { count: pendingRequests.length })}
               </h2>
               {pendingRequests.length === 0 ? (
-                <div className="text-center py-12 text-dark-400">
-                  <Inbox className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p>Nenhuma solicitação pendente</p>
+                <div className="flex flex-col items-center justify-center py-20 text-white/20">
+                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
+                    <Inbox className="w-8 h-8 opacity-50" />
+                  </div>
+                  <p className="font-medium">{t('empty.noPendingRequests')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {pendingRequests.map((request) => (
                     <div
                       key={request.fromUserId}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-dark-800 border border-dark-700"
+                      className="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/5 backdrop-blur-sm hover:bg-white/10 transition-all"
                     >
-                      <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
+                      <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
                         {request.fromUsername?.charAt(0).toUpperCase() || '?'}
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-white">{request.fromUsername || 'Unknown'}</p>
-                        <p className="text-sm text-dark-400">Solicitação de amizade recebida</p>
+                        <p className="font-bold text-white">{request.fromUsername || 'Unknown'}</p>
+                        <p className="text-xs text-white/40 font-medium">{t('friendRequest.received')}</p>
                       </div>
-                      <button
-                        onClick={() => handleAcceptRequest(request.fromUserId)}
-                        className="p-2 rounded-full bg-green-600 hover:bg-green-700"
-                        title="Aceitar"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleRejectRequest(request.fromUserId)}
-                        className="p-2 rounded-full bg-red-600 hover:bg-red-700"
-                        title="Rejeitar"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleAcceptRequest(request.fromUserId)}
+                          className="p-2.5 rounded-full bg-green-500/20 hover:bg-green-500/30 text-green-400 hover:text-green-300 transition-all transform hover:scale-110 shadow-lg"
+                          title={t('actions.accept')}
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleRejectRequest(request.fromUserId)}
+                          className="p-2.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-all transform hover:scale-110 shadow-lg"
+                          title={t('actions.deny')}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -266,18 +270,20 @@ export default function HomeScreen() {
             </div>
           )}
 
-          {/* Tab: Add Friend */}
           {activeTab === 'add' && (
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-white mb-2">Adicionar Amigo</h2>
-              <p className="text-dark-400 mb-6">
-                Você pode adicionar amigos usando o nome de usuário deles.
-              </p>
-              <div className="bg-dark-800 p-4 rounded-lg">
+            <div className="max-w-2xl mx-auto mt-8">
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-bold text-white mb-2">{t('addFriend.title')}</h2>
+                <p className="text-white/50">
+                  {t('addFriend.description')}
+                </p>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 p-1.5 rounded-2xl backdrop-blur-xl shadow-2xl">
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Digite o nome de usuário"
+                    placeholder={t('addFriend.placeholder')}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -285,62 +291,20 @@ export default function HomeScreen() {
                         handleSendFriendRequest()
                       }
                     }}
-                    className="flex-1 px-4 py-3 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600"
+                    className="flex-1 px-6 py-4 bg-transparent text-white placeholder-white/30 focus:outline-none"
                   />
-                  <button 
+                  <button
                     onClick={handleSendFriendRequest}
                     disabled={!searchQuery.trim() || sendingRequest}
-                    className="px-6 py-3 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+                    className="px-8 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-white/10 disabled:to-white/10 disabled:text-white/30 rounded-xl font-bold shadow-lg shadow-purple-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    {sendingRequest ? 'Enviando...' : 'Enviar Solicitação'}
+                    {sendingRequest ? t('addFriend.sending') : t('addFriend.sendRequest')}
                   </button>
                 </div>
               </div>
             </div>
           )}
         </div>
-
-        {/* Sidebar de DMs */}
-        {/* <div className="w-60 bg-dark-800 border-l border-dark-700 p-4">
-          <h3 className="text-xs font-semibold text-dark-400 uppercase mb-3">
-            Mensagens Diretas
-          </h3>
-          {dmChannels.length === 0 ? (
-            <p className="text-sm text-dark-500 text-center py-4">
-              Nenhuma DM ainda
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {dmChannels.map((dm) => (
-                <button
-                  key={dm.id}
-                  onClick={() => handleDMClick(dm.id)}
-                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-dark-700 text-left"
-                >
-                  <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
-                    {dm.type === 'dm' ? (
-                      dm.participants[0]?.username.charAt(0).toUpperCase()
-                    ) : (
-                      <Users className="w-4 h-4" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">
-                      {dm.type === 'dm'
-                        ? dm.participants[0]?.username
-                        : dm.name || 'Group DM'}
-                    </p>
-                    {dm.lastMessage && (
-                      <p className="text-xs text-dark-400 truncate">
-                        {dm.lastMessage}
-                      </p>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div> */}
       </div>
     </div>
   )

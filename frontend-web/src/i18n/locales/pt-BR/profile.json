@@ -1,0 +1,21 @@
+{
+  "uploadAvatar": "Enviar avatar",
+  "changeAvatar": "Alterar avatar",
+  "removeAvatar": "Remover avatar",
+  "profile": "Perfil",
+  "editProfile": "Editar perfil",
+  "displayName": "Nome de exibição",
+  "bio": "Biografia",
+  "status": "Status",
+  "online": "Online",
+  "offline": "Offline",
+  "away": "Ausente",
+  "dnd": "Não perturbe",
+  "idle": "Ausente",
+  "copyUsername": "Copiar nome de usuário",
+  "bioPlaceholder": "Conte-nos sobre você...",
+  "bioCharacterCount": "{{count}}/190",
+  "displayNamePlaceholder": "Seu nome de exibição",
+  "logout": "Sair",
+  "doNotDisturb": "Não Perturbe"
+}

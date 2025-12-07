@@ -20,6 +20,7 @@ interface AuthState {
   register: (email: string, username: string, password: string) => Promise<void>
   logout: () => void
   setUser: (user: User, token: string) => void
+  updateUserAvatar: (avatarUrl: string) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -95,6 +96,12 @@ export const useAuthStore = create<AuthState>()(
           token,
           isAuthenticated: true,
         })
+      },
+
+      updateUserAvatar: (avatarUrl: string) => {
+        set((state) => ({
+          user: state.user ? { ...state.user, avatar: avatarUrl } : null,
+        }))
       },
     }),
     {

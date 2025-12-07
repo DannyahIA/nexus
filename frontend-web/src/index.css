@@ -142,7 +142,7 @@ html, body {
   border-radius: 0.5rem;
   overflow: hidden;
   transition: all 0.2s ease-in-out;
-  aspect-ratio: 16 / 9;
+  /* aspect-ratio: 16 / 9; - Removed for dynamic fill */
   display: flex;
   align-items: center;
   justify-content: center;

@@ -10,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/nexus/backend/internal/database"
 	"github.com/nexus/backend/internal/models"
+	"github.com/nexus/backend/internal/validation"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -47,9 +48,13 @@ type RegisterRequest struct {
 type AuthResponse struct {
 	Token string `json:"token"`
 	User  struct {
-		ID       string `json:"id"`
-		Email    string `json:"email"`
-		Username string `json:"username"`
+		ID            string `json:"id"`
+		Email         string `json:"email"`
+		Username      string `json:"username"`
+		Discriminator string `json:"discriminator"`
+		DisplayName   string `json:"displayName"`
+		Avatar        string `json:"avatar,omitempty"`
+		Bio           string `json:"bio,omitempty"`
 	} `json:"user"`
 }
 
@@ -67,24 +72,66 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implementar busca do usuário no banco
-	// Por enquanto, resposta simulada
+	// Validar entrada com validation package
 	if req.Email == "" || req.Password == "" {
 		http.Error(w, "email and password are required", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Buscar usuário real do banco de dados
-	// Por enquanto, gerar UUID válido
-	userID := uuid.Must(uuid.NewV4()).String()
+	// Sanitizar entradas
+	req.Email = validation.SanitizeString(req.Email)
+	
+	// Validar formato do email
+	if err := validation.ValidateEmail(req.Email); err != nil {
+		ah.logger.Warn("invalid email format", zap.String("email", req.Email), zap.Error(err))
+		http.Error(w, "invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	// Buscar usuário no banco de dados
+	user, err := ah.db.GetUserByEmail(req.Email)
+	if err != nil {
+		ah.logger.Error("user not found", zap.Error(err))
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Verificar senha
+	passwordHash, ok := user["password_hash"].(string)
+	if !ok {
+		ah.logger.Error("invalid password hash format")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
+	if err != nil {
+		ah.logger.Error("invalid password", zap.Error(err))
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Extrair dados do usuário (agora vêm como strings do database)
+	userID, _ := user["user_id"].(string)
+	username, _ := user["username"].(string)
+	discriminator, _ := user["discriminator"].(string)
+	displayName, _ := user["display_name"].(string)
+	avatarURL, _ := user["avatar_url"].(string)
+	bio, _ := user["bio"].(string)
+	
+	ah.logger.Info("user logged in", 
+		zap.String("email", req.Email),
+		zap.String("username", username),
+		zap.String("discriminator", discriminator),
+		zap.String("userID", userID))
 	
 	// Gerar token JWT
 	claims := &models.Claims{
 		UserID:        userID,
 		Email:         req.Email,
-		Username:      "user",
-		Discriminator: "0000",
-		DisplayName:   "user",
+		Username:      username,
+		Discriminator: discriminator,
+		DisplayName:   displayName,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
 			IssuedAt:  time.Now().Unix(),
@@ -105,6 +152,10 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	response.User.ID = claims.UserID
 	response.User.Email = claims.Email
 	response.User.Username = claims.Username
+	response.User.Discriminator = claims.Discriminator
+	response.User.DisplayName = claims.DisplayName
+	response.User.Avatar = avatarURL
+	response.User.Bio = bio
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -129,6 +180,29 @@ func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sanitizar entradas
+	req.Email = validation.SanitizeString(req.Email)
+	req.Username = validation.SanitizeString(req.Username)
+
+	// Validar formatos
+	if err := validation.ValidateEmail(req.Email); err != nil {
+		ah.logger.Warn("invalid email format", zap.String("email", req.Email), zap.Error(err))
+		http.Error(w, "invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	if err := validation.ValidateUsername(req.Username); err != nil {
+		ah.logger.Warn("invalid username format", zap.String("username", req.Username), zap.Error(err))
+		http.Error(w, "invalid username format: must be 3-20 characters, alphanumeric and underscore only", http.StatusBadRequest)
+		return
+	}
+
+	if err := validation.ValidatePassword(req.Password); err != nil {
+		ah.logger.Warn("weak password", zap.String("username", req.Username), zap.Error(err))
+		http.Error(w, "password too weak: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Hash da senha
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -143,15 +217,24 @@ func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Gerar UUID válido para o novo usuário
 	userID := uuid.Must(uuid.NewV4())
 	
-	// TODO: Salvar usuário no banco de dados com discriminador
-	// discriminator, err := ah.db.CreateUserWithDiscriminator(userID.String(), req.Email, req.Username, req.Username, string(hashedPassword))
+	// Salvar usuário no banco de dados com discriminador único
+	discriminator, err := ah.db.CreateUserWithDiscriminator(userID.String(), req.Email, req.Username, req.Username, string(hashedPassword))
+	if err != nil {
+		ah.logger.Error("failed to create user with discriminator", zap.Error(err))
+		http.Error(w, "failed to create user", http.StatusInternalServerError)
+		return
+	}
+	
+	ah.logger.Info("user created with discriminator", 
+		zap.String("username", req.Username), 
+		zap.String("discriminator", discriminator))
 	
 	// Gerar token JWT
 	claims := &models.Claims{
 		UserID:        userID.String(),
 		Email:         req.Email,
 		Username:      req.Username,
-		Discriminator: "0000", // TODO: Usar discriminador gerado
+		Discriminator: discriminator,
 		DisplayName:   req.Username,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
@@ -173,6 +256,10 @@ func (ah *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	response.User.ID = claims.UserID
 	response.User.Email = claims.Email
 	response.User.Username = claims.Username
+	response.User.Discriminator = claims.Discriminator
+	response.User.DisplayName = claims.DisplayName
+	response.User.Avatar = ""
+	response.User.Bio = ""
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

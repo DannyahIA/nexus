@@ -19,8 +19,6 @@ import (
 	"github.com/nexus/backend/internal/middleware"
 )
 
-
-
 func main() {
 	// Carregar variáveis de ambiente
 	if err := godotenv.Load(); err != nil {
@@ -57,6 +55,9 @@ func main() {
 	// Setup CORS middleware
 	corsConfig := middleware.NewCORSConfig(logger)
 
+	// Setup Security middleware
+	securityConfig := middleware.NewSecurityConfig(logger)
+
 	// Setup handlers
 	authHandler := handlers.NewAuthHandler(logger, envConfig.JWTSecret, db)
 	healthHandler := handlers.NewHealthHandler(logger)
@@ -65,6 +66,7 @@ func main() {
 	taskHandler := handlers.NewTaskHandler(logger, db)
 	serverHandler := handlers.NewServerHandler(logger, db)
 	friendHandler := handlers.NewFriendHandler(logger, db)
+	imageHandler := handlers.NewImageHandler(logger, db, "./uploads")
 
 	// Setup rotas HTTP
 	mux := http.NewServeMux()
@@ -160,6 +162,22 @@ func main() {
 		}
 	})))
 
+	// Rotas de colunas de tarefas (protegidas)
+	mux.Handle("/api/tasks/columns", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			taskHandler.GetColumns(w, r)
+		case http.MethodPost:
+			taskHandler.CreateColumn(w, r)
+		case http.MethodPatch, http.MethodPut:
+			taskHandler.UpdateColumn(w, r)
+		case http.MethodDelete:
+			taskHandler.DeleteColumn(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
 	// Rotas de servidores (protegidas)
 	mux.Handle("/api/servers", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -175,7 +193,7 @@ func main() {
 	// Rota para operações específicas de servidor (protegida)
 	mux.Handle("/api/servers/", authHandler.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		
+
 		// Verifica se é /api/servers/join/{code}
 		if strings.HasPrefix(path, "/api/servers/join/") && r.Method == http.MethodPost {
 			serverHandler.JoinServerByInvite(w, r)
@@ -263,10 +281,23 @@ func main() {
 		}
 	})))
 
-	// Iniciar servidor HTTP
+	// Rotas de imagens
+	// Upload de avatar de usuário (protegida)
+	mux.Handle("/api/users/avatar", authHandler.AuthMiddleware(http.HandlerFunc(imageHandler.UploadUserAvatar)))
+
+	// Servir imagens (pública)
+	mux.HandleFunc("/api/images/", imageHandler.ServeImage)
+
+	// Iniciar servidor HTTP com middlewares de segurança
+	handler := securityConfig.PanicRecoveryMiddleware(
+		securityConfig.RequestLoggingMiddleware(
+			securityConfig.RateLimitMiddleware(
+				securityConfig.SecurityHeadersMiddleware(
+					corsConfig.Middleware(mux)))))
+
 	server := &http.Server{
 		Addr:         ":" + envConfig.APIPort,
-		Handler:      corsConfig.Middleware(mux), // Aplicar CORS middleware global
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}

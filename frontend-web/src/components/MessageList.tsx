@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, Trash2, Edit, Reply } from 'lucide-react'
 import MessageContextMenu from './MessageContextMenu'
+import { formatMessageTime, formatDateSeparator } from '../i18n/dateFormatter'
+import { Avatar } from '@heroui/avatar'
 
 interface Message {
   id: string
@@ -48,6 +51,7 @@ const MessageItem = memo(({
   onEditMessage?: (messageId: string, newContent: string) => void;
   onReplyMessage?: (messageId: string) => void;
 }) => {
+  const { t } = useTranslation('chat')
   const [isHovered, setIsHovered] = useState(false)
   const [isShiftPressed, setIsShiftPressed] = useState(false)
   const [showContextMenu, setShowContextMenu] = useState(false)
@@ -72,20 +76,7 @@ const MessageItem = memo(({
   }, [])
 
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
-    
-    if (isToday) {
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    } else {
-      return date.toLocaleDateString('pt-BR', { 
-        day: '2-digit', 
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }
+    return formatMessageTime(timestamp)
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -104,11 +95,7 @@ const MessageItem = memo(({
         <div className="flex items-center justify-center my-4">
           <div className="flex-1 h-px bg-dark-700"></div>
           <span className="px-4 text-xs text-dark-400">
-            {new Date(message.timestamp).toLocaleDateString('pt-BR', {
-              day: '2-digit',
-              month: 'long',
-              year: 'numeric',
-            })}
+            {formatDateSeparator(message.timestamp)}
           </span>
           <div className="flex-1 h-px bg-dark-700"></div>
         </div>
@@ -153,7 +140,7 @@ const MessageItem = memo(({
               <button
                 onClick={() => onReplyMessage(message.id)}
                 className="p-1.5 hover:bg-dark-700 rounded text-dark-300 hover:text-white transition-colors"
-                title="Responder"
+                title={t('reply')}
               >
                 <Reply className="w-4 h-4" />
               </button>
@@ -161,13 +148,13 @@ const MessageItem = memo(({
             {canEdit && onEditMessage && (
               <button
                 onClick={() => {
-                  const newContent = prompt('Editar mensagem:', message.content)
+                  const newContent = prompt(t('editMessage') + ':', message.content)
                   if (newContent && newContent.trim()) {
                     onEditMessage(message.id, newContent.trim())
                   }
                 }}
                 className="p-1.5 hover:bg-dark-700 rounded text-dark-300 hover:text-white transition-colors"
-                title="Editar"
+                title={t('edit')}
               >
                 <Edit className="w-4 h-4" />
               </button>
@@ -175,12 +162,12 @@ const MessageItem = memo(({
             {canDelete && (
               <button
                 onClick={() => {
-                  if (window.confirm('Tem certeza que deseja deletar esta mensagem?')) {
+                  if (window.confirm(t('deleteConfirm'))) {
                     onDeleteMessage(message.id)
                   }
                 }}
                 className="p-1.5 hover:bg-red-600 rounded text-dark-300 hover:text-white transition-colors"
-                title="Deletar"
+                title={t('delete')}
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -189,9 +176,7 @@ const MessageItem = memo(({
         )}
 
         {/* Avatar - oculto se agrupado */}
-        <div className={`w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center ${isGrouped ? 'opacity-0' : ''}`}>
-          {message.username.charAt(0).toUpperCase()}
-        </div>
+        <Avatar name={message.username} src={message.avatar} className={`bg-primary-600 ${isGrouped ? 'opacity-0' : ''}`} />
         
         <div 
           style={{
@@ -209,7 +194,7 @@ const MessageItem = memo(({
                 {formatTime(message.timestamp)}
               </span>
               {message.editedAt && (
-                <span className="text-xs text-dark-500 flex-shrink-0">(editado)</span>
+                <span className="text-xs text-dark-500 flex-shrink-0">({t('edited')})</span>
               )}
             </div>
           )}
@@ -245,6 +230,7 @@ export default function MessageList({
   onEditMessage,
   onReplyMessage
 }: MessageListProps) {
+  const { t } = useTranslation('chat')
   const scrollRef = useRef<HTMLDivElement>(null)
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
   const prevMessagesLengthRef = useRef(0)
@@ -280,12 +266,6 @@ export default function MessageList({
     
     // Return cached value if still valid
     if (cached !== undefined && (now - lastHeightCalculationRef.current) < HEIGHT_CACHE_TTL) {
-      console.log('📏 Height calculation: Using cached value', {
-        cacheKey,
-        cachedHeight: cached,
-        cacheAge: now - lastHeightCalculationRef.current,
-        cacheTTL: HEIGHT_CACHE_TTL,
-      })
       return cached
     }
     
@@ -293,13 +273,6 @@ export default function MessageList({
     const height = element.scrollHeight
     heightCacheRef.current.set(cacheKey, height)
     lastHeightCalculationRef.current = now
-    
-    console.log('📏 Height calculation: Computed new value', {
-      cacheKey,
-      newHeight: height,
-      previousCached: cached,
-      heightChange: cached !== undefined ? height - cached : 'N/A',
-    })
     
     return height
   }, [])
@@ -819,7 +792,7 @@ export default function MessageList({
       {/* Mensagem quando não há mais mensagens antigas */}
       {!hasMore && messages.length > 0 && (
         <div className="flex justify-center py-4">
-          <p className="text-sm text-dark-400">📜 Início da conversa</p>
+          <p className="text-sm text-dark-400">📜 {t('conversationStart')}</p>
         </div>
       )}
 
@@ -869,7 +842,7 @@ export default function MessageList({
       {messages.length > 100 && (
         <div className="flex justify-center py-2">
           <p className="text-xs text-dark-500">
-            Mostrando últimas 100 mensagens de {messages.length} carregadas
+            {t('showingLastMessages', { count: messages.length })}
           </p>
         </div>
       )}
@@ -877,8 +850,8 @@ export default function MessageList({
       {/* Mensagem quando não há mensagens */}
       {messages.length === 0 && !loading && (
         <div className="flex flex-col items-center justify-center h-full text-dark-400">
-          <p className="text-lg mb-2">Nenhuma mensagem ainda</p>
-          <p className="text-sm">Seja o primeiro a enviar uma mensagem!</p>
+          <p className="text-lg mb-2">{t('noMessagesYet')}</p>
+          <p className="text-sm">{t('beFirstToSend')}</p>
         </div>
       )}
     </div>

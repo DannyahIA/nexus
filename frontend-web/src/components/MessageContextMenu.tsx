@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Trash2, Edit, Reply } from 'lucide-react'
 
 interface MessageContextMenuProps {
@@ -28,6 +29,7 @@ export default function MessageContextMenu({
   onEdit,
   onReply,
 }: MessageContextMenuProps) {
+  const { t } = useTranslation('chat')
   const menuRef = useRef<HTMLDivElement>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(content)
@@ -71,7 +73,7 @@ export default function MessageContextMenu({
   }
 
   const handleDelete = () => {
-    if (window.confirm('Tem certeza que deseja deletar esta mensagem?')) {
+    if (window.confirm(t('deleteConfirm'))) {
       onDelete(messageId)
       onClose()
     }
@@ -105,7 +107,7 @@ export default function MessageContextMenu({
       >
         <div className="mb-2">
           <label className="text-xs text-dark-400 uppercase font-semibold">
-            Editar Mensagem
+            {t('editMessage')}
           </label>
         </div>
         <textarea
@@ -121,14 +123,14 @@ export default function MessageContextMenu({
             onClick={handleCancelEdit}
             className="px-3 py-1 text-sm text-dark-300 hover:underline"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             onClick={handleSaveEdit}
             className="px-3 py-1 text-sm bg-primary-600 hover:bg-primary-700 rounded"
             disabled={!editContent.trim()}
           >
-            Salvar
+            {t('save')}
           </button>
         </div>
       </div>
@@ -153,7 +155,7 @@ export default function MessageContextMenu({
           className="w-full px-4 py-2 text-left text-dark-200 hover:bg-primary-600 hover:text-white transition-colors flex items-center gap-3"
         >
           <Reply className="w-4 h-4" />
-          <span>Responder</span>
+          <span>{t('reply')}</span>
         </button>
       )}
 
@@ -163,7 +165,7 @@ export default function MessageContextMenu({
           className="w-full px-4 py-2 text-left text-dark-200 hover:bg-primary-600 hover:text-white transition-colors flex items-center gap-3"
         >
           <Edit className="w-4 h-4" />
-          <span>Editar</span>
+          <span>{t('edit')}</span>
         </button>
       )}
 
@@ -173,13 +175,13 @@ export default function MessageContextMenu({
           className="w-full px-4 py-2 text-left text-red-400 hover:bg-red-600 hover:text-white transition-colors flex items-center gap-3"
         >
           <Trash2 className="w-4 h-4" />
-          <span>Deletar Mensagem</span>
+          <span>{t('deleteMessage')}</span>
         </button>
       )}
 
       {!canEdit && !canDelete && !onReply && (
         <div className="px-4 py-2 text-dark-500 text-sm">
-          Nenhuma ação disponível
+          {t('noActionsAvailable')}
         </div>
       )}
     </div>

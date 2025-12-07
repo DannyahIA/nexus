@@ -282,7 +282,7 @@ func (sh *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 	serverID := parts[3]
 
 	// Atualizar servidor
-	err := sh.db.UpdateServer(serverID, req.Name, req.Description)
+	err := sh.db.UpdateServer(serverID, req.Name, req.Description, req.Icon)
 	if err != nil {
 		sh.logger.Error("failed to update server", zap.Error(err))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -295,6 +295,7 @@ func (sh *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		OwnerID:     claims.UserID,
+		IconURL:     req.Icon,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

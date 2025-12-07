@@ -1,0 +1,54 @@
+{
+  "title": "Amigos",
+  "tabs": {
+    "online": "Online",
+    "all": "Todos",
+    "pending": "Pendentes",
+    "blocked": "Bloqueados",
+    "addFriend": "Adicionar Amigo"
+  },
+  "sections": {
+    "onlineTitle": "Online",
+    "allFriendsTitle": "Todos os Amigos",
+    "pendingRequestsTitle": "Solicitações Pendentes",
+    "onlineCount": "Online ({{count}})",
+    "allCount": "Todos os Amigos ({{count}})",
+    "pendingCount": "Solicitações Pendentes ({{count}})"
+  },
+  "empty": {
+    "noOnlineFriends": "Nenhum amigo online",
+    "noFriends": "Nenhum amigo ainda",
+    "noPendingRequests": "Nenhuma solicitação de amizade pendente",
+    "noBlockedUsers": "Nenhum usuário bloqueado"
+  },
+  "actions": {
+    "sendMessage": "Mensagem",
+    "accept": "Aceitar",
+    "reject": "Rejeitar",
+    "removeFriend": "Remover Amigo",
+    "backToChat": "Voltar ao Chat"
+  },
+  "addFriend": {
+    "title": "Adicionar Amigo",
+    "placeholder": "Digite o nome de usuário (ex: dannyah ou dannyah#1234)",
+    "sendRequest": "Enviar Solicitação",
+    "sending": "Enviando...",
+    "requestSent": "Solicitação de amizade enviada para {{username}}",
+    "failedToSend": "Falha ao enviar solicitação de amizade"
+  },
+  "confirmations": {
+    "removeFriend": "Remover {{username}} dos amigos?"
+  },
+  "success": {
+    "nowFriends": "Agora você é amigo de {{username}}",
+    "requestAccepted": "Solicitação de amizade aceita"
+  },
+  "errors": {
+    "failedToLoad": "Falha ao carregar amigos",
+    "failedToLoadRequests": "Falha ao carregar solicitações de amizade",
+    "failedToAccept": "Falha ao aceitar solicitação de amizade",
+    "failedToReject": "Falha ao rejeitar solicitação de amizade",
+    "failedToRemove": "Falha ao remover amigo",
+    "failedToOpenDM": "Falha ao abrir mensagem direta"
+  }
+}

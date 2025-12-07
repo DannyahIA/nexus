@@ -18,8 +18,16 @@ type CassandraDB struct {
 func NewCassandraDB(hosts []string, keyspace string) (*CassandraDB, error) {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Keyspace = keyspace
-	cluster.Consistency = gocql.Quorum
-	cluster.ConnectTimeout = 5e9 // 5 segundos
+	cluster.Consistency = gocql.LocalQuorum // Melhor para multi-DC
+
+	// Configurações de timeout e retry
+	cluster.Timeout = 10 * time.Second
+	cluster.ConnectTimeout = 5 * time.Second
+	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+
+	// Configuração de connection pool
+	cluster.NumConns = 2 // Conexões por host
+	cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
 
 	session, err := cluster.CreateSession()
 	if err != nil {
@@ -47,7 +55,7 @@ func (db *CassandraDB) InitializeKeyspace() error {
 	if err := db.session.Query(createKeyspaceQuery).Exec(); err != nil {
 		log.Printf("Warning: Failed to create keyspace: %v", err)
 	}
-	
+
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS messages_by_channel (
 			channel_id uuid,
@@ -74,6 +82,13 @@ func (db *CassandraDB) InitializeKeyspace() error {
 			user_id uuid PRIMARY KEY,
 			status text,
 			last_seen timestamp
+		)`,
+		`CREATE TABLE IF NOT EXISTS users_by_username_discriminator (
+			username text,
+			discriminator text,
+			user_id uuid,
+			email text,
+			PRIMARY KEY (username, discriminator)
 		)`,
 		`CREATE TABLE IF NOT EXISTS nexus.users (
 			user_id uuid PRIMARY KEY,
@@ -105,6 +120,10 @@ func (db *CassandraDB) InitializeKeyspace() error {
 			started_at timestamp,
 			ended_at timestamp
 		)`,
+		`CREATE TABLE IF NOT EXISTS nexus.users_by_email (
+			email text PRIMARY KEY,
+			user_id uuid
+		)`,
 	}
 
 	for _, query := range queries {
@@ -112,11 +131,53 @@ func (db *CassandraDB) InitializeKeyspace() error {
 			log.Printf("Warning: Query failed: %s\nError: %v", query, err)
 		}
 	}
-	
+
 	// Tentar criar índice de discriminator (pode falhar se a coluna não existir ainda)
 	discriminatorIndexQuery := `CREATE INDEX IF NOT EXISTS idx_user_discriminator ON nexus.users(discriminator)`
 	if err := db.session.Query(discriminatorIndexQuery).Exec(); err != nil {
 		log.Printf("Info: Discriminator index not created (column may not exist yet): %v", err)
+	}
+
+	// Adicionar coluna server_id na tabela channels se não existir
+	alterChannelsQuery := `ALTER TABLE nexus.channels ADD server_id uuid`
+	if err := db.session.Query(alterChannelsQuery).Exec(); err != nil {
+		log.Printf("Info: Failed to add server_id to channels (may already exist): %v", err)
+	}
+
+	// Criar índice para server_id
+	serverIndexQuery := `CREATE INDEX IF NOT EXISTS idx_channels_server_id ON nexus.channels(server_id)`
+	if err := db.session.Query(serverIndexQuery).Exec(); err != nil {
+		log.Printf("Warning: Failed to create server_id index: %v", err)
+	}
+
+	// Tabela de colunas de tarefas (Dynamic Columns)
+	createTaskColumnsQuery := `CREATE TABLE IF NOT EXISTS nexus.task_columns (
+		channel_id uuid,
+		column_id uuid,
+		name text,
+		position int,
+		created_at timestamp,
+		updated_at timestamp,
+		PRIMARY KEY (channel_id, position, column_id)
+	)`
+	if err := db.session.Query(createTaskColumnsQuery).Exec(); err != nil {
+		log.Printf("Warning: Failed to create task_columns table: %v", err)
+	}
+
+	// Alterações na tabela de tarefas para suportar novas features
+	alterTasksQueries := []string{
+		`ALTER TABLE nexus.tasks_by_channel ADD column_id uuid`,
+		`ALTER TABLE nexus.tasks_by_channel ADD labels list<text>`,
+		`ALTER TABLE nexus.tasks_by_channel ADD due_date timestamp`,
+		`ALTER TABLE nexus.tasks_by_channel ADD priority text`,
+	}
+
+	for _, query := range alterTasksQueries {
+		if err := db.session.Query(query).Exec(); err != nil {
+			// Ignorar erro se coluna já existir (Cassandra não tem IF NOT EXISTS para ADD COLUMN em versões antigas ou driver específico)
+			// Mas vamos logar como info
+			log.Printf("Info: Failed to alter tasks table (column may already exist): %v | Query: %s", err, query)
+		}
 	}
 
 	return nil
@@ -212,45 +273,117 @@ func (db *CassandraDB) CreateUser(userID, email, username, passwordHash string) 
 
 // GetUserByEmail retorna um usuário pelo email (usando índice secundário)
 func (db *CassandraDB) GetUserByEmail(email string) (map[string]interface{}, error) {
-	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE email = ? ALLOW FILTERING`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, email).MapScan(row)
+	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE email = ? ALLOW FILTERING`
+
+	var userID gocql.UUID
+	var userEmail, username, discriminator, displayName, passwordHash, avatarURL, bio string
+	var createdAt time.Time
+
+	err := db.session.Query(query, email).Scan(&userID, &userEmail, &username, &discriminator, &displayName, &passwordHash, &avatarURL, &bio, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+
+	row := map[string]interface{}{
+		"user_id":       userID.String(),
+		"email":         userEmail,
+		"username":      username,
+		"discriminator": discriminator,
+		"display_name":  displayName,
+		"password_hash": passwordHash,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+
 	return row, nil
 }
 
 // GetUserByUsername retorna um usuário pelo username (usando índice secundário)
 func (db *CassandraDB) GetUserByUsername(username string) (map[string]interface{}, error) {
-	query := `SELECT user_id, email, username, password_hash, avatar_url, created_at FROM nexus.users WHERE username = ? ALLOW FILTERING`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, username).MapScan(row)
+	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE username = ? ALLOW FILTERING`
+
+	var userID gocql.UUID
+	var userEmail, uname, discriminator, displayName, passwordHash, avatarURL, bio string
+	var createdAt time.Time
+
+	err := db.session.Query(query, username).Scan(&userID, &userEmail, &uname, &discriminator, &displayName, &passwordHash, &avatarURL, &bio, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+
+	row := map[string]interface{}{
+		"user_id":       userID.String(),
+		"email":         userEmail,
+		"username":      uname,
+		"discriminator": discriminator,
+		"display_name":  displayName,
+		"password_hash": passwordHash,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+
 	return row, nil
 }
 
 // GetUserByUsernameAndDiscriminator retorna um usuário específico pelo username e discriminador
 func (db *CassandraDB) GetUserByUsernameAndDiscriminator(username, discriminator string) (map[string]interface{}, error) {
 	query := `SELECT user_id, email, username, discriminator, display_name, password_hash, avatar_url, bio, created_at FROM nexus.users WHERE username = ? AND discriminator = ? ALLOW FILTERING`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, username, discriminator).MapScan(row)
+
+	var userID gocql.UUID
+	var userEmail, uname, disc, displayName, passwordHash, avatarURL, bio string
+	var createdAt time.Time
+
+	err := db.session.Query(query, username, discriminator).Scan(&userID, &userEmail, &uname, &disc, &displayName, &passwordHash, &avatarURL, &bio, &createdAt)
 	if err != nil {
 		return nil, err
 	}
+
+	row := map[string]interface{}{
+		"user_id":       userID.String(),
+		"email":         userEmail,
+		"username":      uname,
+		"discriminator": disc,
+		"display_name":  displayName,
+		"password_hash": passwordHash,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+
 	return row, nil
 }
 
 // GetUserByID retorna um usuário pelo ID
 func (db *CassandraDB) GetUserByID(userID string) (map[string]interface{}, error) {
-	query := `SELECT user_id, email, username, avatar_url, created_at FROM nexus.users WHERE user_id = ?`
-	row := make(map[string]interface{})
-	err := db.session.Query(query, userID).MapScan(row)
+	query := `SELECT user_id, email, username, discriminator, display_name, avatar_url, bio, created_at FROM nexus.users WHERE user_id = ?`
+
+	userUUID, err := gocql.ParseUUID(userID)
 	if err != nil {
 		return nil, err
 	}
+
+	var uid gocql.UUID
+	var userEmail, username, discriminator, displayName, avatarURL, bio string
+	var createdAt time.Time
+
+	err = db.session.Query(query, userUUID).Scan(&uid, &userEmail, &username, &discriminator, &displayName, &avatarURL, &bio, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+
+	row := map[string]interface{}{
+		"user_id":       uid.String(),
+		"email":         userEmail,
+		"username":      username,
+		"discriminator": discriminator,
+		"display_name":  displayName,
+		"avatar_url":    avatarURL,
+		"bio":           bio,
+		"created_at":    createdAt,
+	}
+
 	return row, nil
 }
 
@@ -433,7 +566,7 @@ func (db *CassandraDB) UpdateMessage(channelID, messageID, newContent string) er
 	selectQuery := `SELECT ts FROM nexus.messages_by_channel 
 	                WHERE channel_id = ? AND bucket = ? AND msg_id = ?
 	                ALLOW FILTERING`
-	
+
 	var ts time.Time
 	err = db.session.Query(selectQuery, channelUUID, bucket, msgUUID).Scan(&ts)
 	if err != nil {
@@ -467,7 +600,7 @@ func (db *CassandraDB) DeleteMessage(channelID, messageID string) error {
 	selectQuery := `SELECT ts FROM nexus.messages_by_channel 
 	                WHERE channel_id = ? AND bucket = ? AND msg_id = ?
 	                ALLOW FILTERING`
-	
+
 	var ts time.Time
 	err = db.session.Query(selectQuery, channelUUID, bucket, msgUUID).Scan(&ts)
 	if err != nil {
@@ -482,9 +615,9 @@ func (db *CassandraDB) DeleteMessage(channelID, messageID string) error {
 }
 
 // CreateTask cria uma nova task
-func (db *CassandraDB) CreateTask(channelID, taskID, title, status, assigneeID string, position int) error {
-	query := `INSERT INTO nexus.tasks_by_channel (channel_id, task_id, title, status, assignee, position, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+func (db *CassandraDB) CreateTask(channelID, taskID, title, status, assigneeID, columnID, priority string, labels []string, dueDate *time.Time, position int) error {
+	query := `INSERT INTO nexus.tasks_by_channel (channel_id, task_id, title, status, assignee, column_id, priority, labels, due_date, position, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	channelUUID, err := gocql.ParseUUID(channelID)
 	if err != nil {
@@ -505,16 +638,24 @@ func (db *CassandraDB) CreateTask(channelID, taskID, title, status, assigneeID s
 		assigneeUUID = &parsedUUID
 	}
 
+	var columnUUID *gocql.UUID
+	if columnID != "" {
+		parsedUUID, err := gocql.ParseUUID(columnID)
+		if err != nil {
+			return err
+		}
+		columnUUID = &parsedUUID
+	}
+
 	now := time.Now()
-	return db.session.Query(query, channelUUID, taskUUID, title, status, assigneeUUID, position, now, now).Exec()
+	return db.session.Query(query, channelUUID, taskUUID, title, status, assigneeUUID, columnUUID, priority, labels, dueDate, position, now, now).Exec()
 }
 
 // GetTasksByChannel retorna todas as tasks de um canal
 func (db *CassandraDB) GetTasksByChannel(channelID string) ([]map[string]interface{}, error) {
-	query := `SELECT channel_id, task_id, title, status, assignee, position, created_at, updated_at
+	query := `SELECT channel_id, task_id, title, status, assignee, column_id, priority, labels, due_date, position, created_at, updated_at
 	          FROM nexus.tasks_by_channel
-	          WHERE channel_id = ?
-	          ORDER BY position ASC`
+	          WHERE channel_id = ?`
 
 	channelUUID, err := gocql.ParseUUID(channelID)
 	if err != nil {
@@ -526,17 +667,21 @@ func (db *CassandraDB) GetTasksByChannel(channelID string) ([]map[string]interfa
 
 	var results []map[string]interface{}
 	var chID, taskID gocql.UUID
-	var assigneeUUID *gocql.UUID
-	var title, status string
+	var assigneeUUID, columnUUID *gocql.UUID
+	var title, status, priority string
+	var labels []string
+	var dueDate *time.Time
 	var position int
 	var createdAt, updatedAt time.Time
 
-	for iter.Scan(&chID, &taskID, &title, &status, &assigneeUUID, &position, &createdAt, &updatedAt) {
+	for iter.Scan(&chID, &taskID, &title, &status, &assigneeUUID, &columnUUID, &priority, &labels, &dueDate, &position, &createdAt, &updatedAt) {
 		row := map[string]interface{}{
 			"channel_id": chID.String(),
 			"task_id":    taskID.String(),
 			"title":      title,
 			"status":     status,
+			"priority":   priority,
+			"labels":     labels,
 			"position":   position,
 			"created_at": createdAt,
 			"updated_at": updatedAt,
@@ -544,6 +689,12 @@ func (db *CassandraDB) GetTasksByChannel(channelID string) ([]map[string]interfa
 
 		if assigneeUUID != nil {
 			row["assignee"] = assigneeUUID.String()
+		}
+		if columnUUID != nil {
+			row["column_id"] = columnUUID.String()
+		}
+		if dueDate != nil {
+			row["due_date"] = *dueDate
 		}
 
 		results = append(results, row)
@@ -557,9 +708,9 @@ func (db *CassandraDB) GetTasksByChannel(channelID string) ([]map[string]interfa
 }
 
 // UpdateTask atualiza uma task
-func (db *CassandraDB) UpdateTask(channelID, taskID, title, status string, position int) error {
+func (db *CassandraDB) UpdateTask(channelID, taskID, title, status, columnID, priority string, labels []string, dueDate *time.Time, position int) error {
 	query := `UPDATE nexus.tasks_by_channel
-	          SET title = ?, status = ?, updated_at = ?
+	          SET title = ?, status = ?, column_id = ?, priority = ?, labels = ?, due_date = ?, updated_at = ?
 	          WHERE channel_id = ? AND position = ? AND task_id = ?`
 
 	channelUUID, err := gocql.ParseUUID(channelID)
@@ -572,7 +723,16 @@ func (db *CassandraDB) UpdateTask(channelID, taskID, title, status string, posit
 		return err
 	}
 
-	return db.session.Query(query, title, status, time.Now(), channelUUID, position, taskUUID).Exec()
+	var columnUUID *gocql.UUID
+	if columnID != "" {
+		parsedUUID, err := gocql.ParseUUID(columnID)
+		if err != nil {
+			return err
+		}
+		columnUUID = &parsedUUID
+	}
+
+	return db.session.Query(query, title, status, columnUUID, priority, labels, dueDate, time.Now(), channelUUID, position, taskUUID).Exec()
 }
 
 // DeleteTask deleta uma task
@@ -591,4 +751,86 @@ func (db *CassandraDB) DeleteTask(channelID, taskID string, position int) error 
 	}
 
 	return db.session.Query(query, channelUUID, position, taskUUID).Exec()
+}
+
+// UpdateUserAvatar atualiza a URL do avatar de um usuário
+func (db *CassandraDB) UpdateUserAvatar(userID, avatarURL string) error {
+	query := `UPDATE nexus.users SET avatar_url = ?, updated_at = ? WHERE user_id = ?`
+
+	userUUID, err := gocql.ParseUUID(userID)
+	if err != nil {
+		return err
+	}
+
+	return db.session.Query(query, avatarURL, time.Now(), userUUID).Exec()
+}
+
+// ==================== TASK COLUMNS ====================
+
+// CreateTaskColumn cria uma nova coluna de tarefa
+func (db *CassandraDB) CreateTaskColumn(channelID, columnID, name string, position int) error {
+	query := `INSERT INTO nexus.task_columns (channel_id, column_id, name, position, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?)`
+
+	channelUUID, _ := gocql.ParseUUID(channelID)
+	columnUUID, _ := gocql.ParseUUID(columnID)
+	now := time.Now()
+
+	return db.session.Query(query, channelUUID, columnUUID, name, position, now, now).Exec()
+}
+
+// GetTaskColumns retorna as colunas de um canal
+func (db *CassandraDB) GetTaskColumns(channelID string) ([]map[string]interface{}, error) {
+	query := `SELECT column_id, name, position, created_at, updated_at 
+	          FROM nexus.task_columns WHERE channel_id = ?`
+
+	channelUUID, _ := gocql.ParseUUID(channelID)
+	iter := db.session.Query(query, channelUUID).Iter()
+	defer iter.Close()
+
+	var results []map[string]interface{}
+	var columnID gocql.UUID
+	var name string
+	var position int
+	var createdAt, updatedAt time.Time
+
+	for iter.Scan(&columnID, &name, &position, &createdAt, &updatedAt) {
+		row := map[string]interface{}{
+			"column_id":  columnID.String(),
+			"name":       name,
+			"position":   position,
+			"created_at": createdAt,
+			"updated_at": updatedAt,
+		}
+		results = append(results, row)
+	}
+
+	return results, iter.Close()
+}
+
+// UpdateTaskColumn atualiza uma coluna de tarefa
+func (db *CassandraDB) UpdateTaskColumn(channelID, columnID, name string, position int) error {
+	// Nota: Em Cassandra, mudar parte da Primary Key (position) requer deletar e inserir novamente.
+	// Por simplificação, assumiremos que position não muda aqui, ou o caller lida com isso.
+	// Se position mudar, precisaremos de uma lógica mais complexa.
+	// Para este MVP, vamos permitir apenas mudar o nome se a posição for a mesma.
+
+	query := `UPDATE nexus.task_columns SET name = ?, updated_at = ? 
+	          WHERE channel_id = ? AND position = ? AND column_id = ?`
+
+	channelUUID, _ := gocql.ParseUUID(channelID)
+	columnUUID, _ := gocql.ParseUUID(columnID)
+
+	return db.session.Query(query, name, time.Now(), channelUUID, position, columnUUID).Exec()
+}
+
+// DeleteTaskColumn deleta uma coluna de tarefa
+func (db *CassandraDB) DeleteTaskColumn(channelID, columnID string, position int) error {
+	query := `DELETE FROM nexus.task_columns 
+	          WHERE channel_id = ? AND position = ? AND column_id = ?`
+
+	channelUUID, _ := gocql.ParseUUID(channelID)
+	columnUUID, _ := gocql.ParseUUID(columnID)
+
+	return db.session.Query(query, channelUUID, position, columnUUID).Exec()
 }

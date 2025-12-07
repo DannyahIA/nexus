@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X, Upload, Hash } from 'lucide-react'
 
 interface CreateServerModalProps {
@@ -8,6 +9,8 @@ interface CreateServerModalProps {
 }
 
 export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateServerModalProps) {
+  const { t } = useTranslation('chat')
+  const { t: tCommon } = useTranslation('common')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [icon, setIcon] = useState('')
@@ -54,7 +57,7 @@ export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateS
       <div className="bg-dark-800 rounded-lg w-full max-w-md shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-dark-700">
-          <h2 className="text-xl font-bold text-white">Criar Servidor</h2>
+          <h2 className="text-xl font-bold text-white">{t('createServer')}</h2>
           <button
             onClick={onClose}
             className="text-dark-400 hover:text-white transition-colors p-1 rounded hover:bg-dark-700"
@@ -76,22 +79,22 @@ export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateS
               )}
             </div>
             <p className="text-xs text-dark-400 text-center">
-              Clique para fazer upload de um ícone
+              {t('clickToUploadIcon')}
               <br />
-              <span className="text-dark-500">(ou cole uma URL abaixo)</span>
+              <span className="text-dark-500">{t('orPasteUrlBelow')}</span>
             </p>
           </div>
 
           {/* Icon URL */}
           <div>
             <label className="block text-sm font-medium text-dark-300 mb-2">
-              URL do Ícone <span className="text-dark-500">(opcional)</span>
+              {t('iconUrl')} <span className="text-dark-500">({t('optional')})</span>
             </label>
             <input
               type="url"
               value={icon}
               onChange={(e) => setIcon(e.target.value)}
-              placeholder="https://exemplo.com/icone.png"
+              placeholder={t('iconUrlPlaceholder')}
               className="w-full px-4 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent"
               disabled={loading}
             />
@@ -100,13 +103,13 @@ export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateS
           {/* Nome do Servidor */}
           <div>
             <label className="block text-sm font-medium text-dark-300 mb-2">
-              Nome do Servidor <span className="text-red-500">*</span>
+              {t('serverName')} <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Meu Servidor Incrível"
+              placeholder={t('serverNamePlaceholder')}
               maxLength={100}
               required
               className="w-full px-4 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent"
@@ -114,26 +117,26 @@ export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateS
               autoFocus
             />
             <p className="text-xs text-dark-500 mt-1">
-              {name.length}/100 caracteres
+              {t('characterCountLimit', { count: name.length, limit: 100 })}
             </p>
           </div>
 
           {/* Descrição */}
           <div>
             <label className="block text-sm font-medium text-dark-300 mb-2">
-              Descrição <span className="text-dark-500">(opcional)</span>
+              {t('serverDescription')} <span className="text-dark-500">({t('optional')})</span>
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Sobre o que é seu servidor?"
+              placeholder={t('serverDescriptionPlaceholder')}
               maxLength={500}
               rows={3}
               className="w-full px-4 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent resize-none"
               disabled={loading}
             />
             <p className="text-xs text-dark-500 mt-1">
-              {description.length}/500 caracteres
+              {t('characterCountLimit', { count: description.length, limit: 500 })}
             </p>
           </div>
 
@@ -143,10 +146,10 @@ export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateS
               <Hash className="w-5 h-5 text-primary-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-primary-400 mb-1">
-                  Dica
+                  {t('tip')}
                 </p>
                 <p className="text-xs text-dark-300">
-                  Após criar o servidor, você poderá adicionar canais de texto, voz e categorias para organizá-lo.
+                  {t('serverCreationTip')}
                 </p>
               </div>
             </div>
@@ -160,14 +163,14 @@ export default function CreateServerModal({ isOpen, onClose, onCreate }: CreateS
               className="flex-1 px-4 py-2 bg-dark-700 hover:bg-dark-600 text-white rounded-lg transition-colors font-medium"
               disabled={loading}
             >
-              Cancelar
+              {tCommon('cancel')}
             </button>
             <button
               type="submit"
               disabled={!name.trim() || loading}
               className="flex-1 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-dark-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
             >
-              {loading ? 'Criando...' : 'Criar Servidor'}
+              {loading ? t('creating') : t('createServerButton')}
             </button>
           </div>
         </form>

@@ -1,0 +1,54 @@
+{
+  "title": "Friends",
+  "tabs": {
+    "online": "Online",
+    "all": "All",
+    "pending": "Pending",
+    "blocked": "Blocked",
+    "addFriend": "Add Friend"
+  },
+  "sections": {
+    "onlineTitle": "Online",
+    "allFriendsTitle": "All Friends",
+    "pendingRequestsTitle": "Pending Requests",
+    "onlineCount": "Online ({{count}})",
+    "allCount": "All Friends ({{count}})",
+    "pendingCount": "Pending Requests ({{count}})"
+  },
+  "empty": {
+    "noOnlineFriends": "No friends online",
+    "noFriends": "No friends yet",
+    "noPendingRequests": "No pending friend requests",
+    "noBlockedUsers": "No blocked users"
+  },
+  "actions": {
+    "sendMessage": "Message",
+    "accept": "Accept",
+    "reject": "Reject",
+    "removeFriend": "Remove Friend",
+    "backToChat": "Back to Chat"
+  },
+  "addFriend": {
+    "title": "Add Friend",
+    "placeholder": "Enter username (e.g. dannyah or dannyah#1234)",
+    "sendRequest": "Send Request",
+    "sending": "Sending...",
+    "requestSent": "Friend request sent to {{username}}",
+    "failedToSend": "Failed to send friend request"
+  },
+  "confirmations": {
+    "removeFriend": "Remove {{username}} from friends?"
+  },
+  "success": {
+    "nowFriends": "You are now friends with {{username}}",
+    "requestAccepted": "Friend request accepted"
+  },
+  "errors": {
+    "failedToLoad": "Failed to load friends",
+    "failedToLoadRequests": "Failed to load friend requests",
+    "failedToAccept": "Failed to accept friend request",
+    "failedToReject": "Failed to reject friend request",
+    "failedToRemove": "Failed to remove friend",
+    "failedToOpenDM": "Failed to open DM"
+  }
+}

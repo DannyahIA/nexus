@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { List, ListImperativeAPI } from 'react-window'
 import AutoSizer from 'react-virtualized-auto-sizer'
 import { Loader2 } from 'lucide-react'
+import { formatMessageTime, formatDateSeparator } from '../i18n/dateFormatter'
 
 interface Message {
   id: string
@@ -32,7 +33,6 @@ export default function VirtualizedMessageList({
   const isLoadingMoreRef = useRef(false)
   const rowHeightCache = useRef(new Map<number, number>())
 
-  // Estimar altura de uma mensagem baseado no conteúdo
   const estimateRowHeight = useCallback((index: number) => {
     const cached = rowHeightCache.current.get(index)
     if (cached) return cached
@@ -40,10 +40,6 @@ export default function VirtualizedMessageList({
     const message = messages[index]
     if (!message) return 80
 
-    // Calcular altura baseado em:
-    // - Cabeçalho (username + timestamp): 24px
-    // - Conteúdo: ~20px por linha (assumindo ~60 chars por linha)
-    // - Padding: 16px total
     const headerHeight = 24
     const padding = 16
     const lineHeight = 20
@@ -57,12 +53,10 @@ export default function VirtualizedMessageList({
     return totalHeight
   }, [messages])
 
-  // Resetar cache quando mensagens mudarem
   useEffect(() => {
     rowHeightCache.current.clear()
   }, [messages.length])
 
-  // Auto-scroll para o final quando novas mensagens chegam
   useEffect(() => {
     const isNewMessage = messages.length > prevMessagesLengthRef.current
     const wasEmpty = prevMessagesLengthRef.current === 0
@@ -70,14 +64,12 @@ export default function VirtualizedMessageList({
     prevMessagesLengthRef.current = messages.length
 
     if (wasEmpty && messages.length > 0) {
-      // Primeira carga: scrollar para o final
       setTimeout(() => {
         if (listRef.current) {
           listRef.current.scrollToRow({ index: messages.length - 1, align: 'end' })
         }
       }, 100)
     } else if (isNewMessage && !isLoadingMoreRef.current) {
-      // Nova mensagem: scrollar para o final
       setTimeout(() => {
         if (listRef.current) {
           listRef.current.scrollToRow({ index: messages.length - 1, align: 'end' })
@@ -86,25 +78,10 @@ export default function VirtualizedMessageList({
     }
   }, [messages.length])
 
-  // Formatar timestamp
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
-    
-    if (isToday) {
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    } else {
-      return date.toLocaleDateString('pt-BR', { 
-        day: '2-digit', 
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }
+    return formatMessageTime(timestamp)
   }
 
-  // Verificar se precisa mostrar separador de data
   const shouldShowDateSeparator = (index: number) => {
     if (index === 0) return true
     const current = messages[index]
@@ -112,7 +89,6 @@ export default function VirtualizedMessageList({
     return new Date(current.timestamp).toDateString() !== new Date(previous.timestamp).toDateString()
   }
 
-  // Renderizar item da lista
   const MessageRow = ({ index, style, ariaAttributes }: { 
     index: number; 
     style: React.CSSProperties;
@@ -129,22 +105,16 @@ export default function VirtualizedMessageList({
 
     return (
       <div style={style} {...ariaAttributes}>
-        {/* Separador de data */}
         {showDateSeparator && (
           <div className="flex items-center justify-center my-4">
             <div className="flex-1 h-px bg-dark-700"></div>
             <span className="px-4 text-xs text-dark-400">
-              {new Date(message.timestamp).toLocaleDateString('pt-BR', {
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric',
-              })}
+              {formatDateSeparator(message.timestamp)}
             </span>
             <div className="flex-1 h-px bg-dark-700"></div>
           </div>
         )}
 
-        {/* Mensagem */}
         <div className="flex gap-3 hover:bg-dark-800/50 px-4 py-2 rounded">
           <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
             {message.username.charAt(0).toUpperCase()}
@@ -156,7 +126,7 @@ export default function VirtualizedMessageList({
                 {formatTime(message.timestamp)}
               </span>
               {message.editedAt && (
-                <span className="text-xs text-dark-500">(editado)</span>
+                <span className="text-xs text-dark-500">(edited)</span>
               )}
             </div>
             <p className="text-dark-200 break-words whitespace-pre-wrap">{message.content}</p>
@@ -166,39 +136,35 @@ export default function VirtualizedMessageList({
     )
   }
 
-  // Renderizar header com loading/início da conversa
   const Header = () => (
     <div className="p-4">
       {loading && hasMore && (
         <div className="flex justify-center py-4">
           <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
-          <span className="ml-2 text-sm text-dark-400">Carregando mensagens...</span>
+          <span className="ml-2 text-sm text-dark-400">Loading messages...</span>
         </div>
       )}
       {!hasMore && messages.length > 0 && (
         <div className="flex justify-center py-4">
-          <p className="text-sm text-dark-400">📜 Início da conversa</p>
+          <p className="text-sm text-dark-400">📜 Start of conversation</p>
         </div>
       )}
     </div>
   )
 
-  // Estado vazio
   if (messages.length === 0 && !loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-dark-400 bg-dark-900">
-        <p className="text-lg mb-2">💬 Nenhuma mensagem ainda</p>
-        <p className="text-sm">Seja o primeiro a enviar uma mensagem!</p>
+        <p className="text-lg mb-2">💬 No messages yet</p>
+        <p className="text-sm">Be the first to send a message!</p>
       </div>
     )
   }
 
   return (
     <div className="flex-1 bg-dark-900">
-      {/* Header fixo */}
       <Header />
 
-      {/* Lista virtualizada */}
       <AutoSizer>
         {({ height, width }: { height: number; width: number }) => (
           <List<{}>

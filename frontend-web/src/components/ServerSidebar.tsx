@@ -64,22 +64,24 @@ export default function ServerSidebar() {
   }
 
   return (
-    <div className="w-[72px] bg-dark-900 flex flex-col items-center py-3 gap-2 overflow-y-auto">
+    <div className="w-[72px] h-full flex flex-col items-center py-3 gap-2 overflow-y-auto no-scrollbar">
       {/* Home Button (DMs e Amigos) */}
       <button
         onClick={handleHomeClick}
-        className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 flex items-center justify-center ${
-          activeServerId === null
-            ? 'bg-primary-600 rounded-[16px]'
-            : 'bg-dark-700 hover:bg-primary-600'
-        }`}
+        className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-300 flex items-center justify-center shadow-lg group relative ${activeServerId === null
+          ? 'bg-gradient-to-br from-purple-600 to-indigo-600 text-white shadow-purple-500/30'
+          : 'bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'
+          }`}
         title="Home"
       >
-        <Users className="w-6 h-6" />
+        <Users className="w-6 h-6 transition-transform duration-300 group-hover:scale-110" />
+        {activeServerId === null && (
+          <div className="absolute -left-4 w-1 h-8 bg-white rounded-r-full" />
+        )}
       </button>
 
       {/* Separador */}
-      <div className="w-8 h-[2px] bg-dark-700 rounded-full" />
+      <div className="w-8 h-[2px] bg-white/10 rounded-full my-1" />
 
       {/* Lista de Servidores */}
       {servers.map((server) => (
@@ -87,11 +89,10 @@ export default function ServerSidebar() {
           key={server.id}
           onClick={() => handleServerClick(server.id)}
           onContextMenu={(e) => handleServerRightClick(e, server)}
-          className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 flex items-center justify-center text-white font-semibold ${
-            activeServerId === server.id
-              ? 'bg-primary-600 rounded-[16px]'
-              : 'bg-dark-700 hover:bg-primary-600'
-          }`}
+          className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-300 flex items-center justify-center text-white font-semibold shadow-lg relative group ${activeServerId === server.id
+            ? 'bg-gradient-to-br from-purple-600 to-indigo-600 shadow-purple-500/30'
+            : 'bg-white/5 hover:bg-white/10'
+            }`}
           title={server.name}
         >
           {server.iconUrl ? (
@@ -101,7 +102,7 @@ export default function ServerSidebar() {
               className="w-full h-full rounded-[inherit] object-cover"
             />
           ) : (
-            <span className="text-lg">
+            <span className="text-sm font-bold group-hover:scale-110 transition-transform duration-300">
               {server.name
                 .split(' ')
                 .map((w) => w[0])
@@ -110,25 +111,28 @@ export default function ServerSidebar() {
                 .slice(0, 2)}
             </span>
           )}
+          {activeServerId === server.id && (
+            <div className="absolute -left-4 w-1 h-8 bg-white rounded-r-full" />
+          )}
         </button>
       ))}
 
       {/* Botão Adicionar Servidor */}
       <button
         onClick={() => setShowCreateModal(true)}
-        className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 bg-dark-700 hover:bg-green-600 flex items-center justify-center group"
+        className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-300 bg-white/5 hover:bg-green-500/20 text-green-500 hover:text-green-400 flex items-center justify-center group border border-dashed border-green-500/30 hover:border-green-500/50"
         title="Criar Servidor"
       >
-        <Plus className="w-6 h-6 text-green-500 group-hover:text-white" />
+        <Plus className="w-6 h-6 transition-transform duration-300 group-hover:rotate-90" />
       </button>
 
       {/* Botão Entrar em Servidor */}
       <button
         onClick={() => setShowJoinModal(true)}
-        className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 bg-dark-700 hover:bg-blue-600 flex items-center justify-center group"
+        className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-300 bg-white/5 hover:bg-blue-500/20 text-blue-500 hover:text-blue-400 flex items-center justify-center group border border-dashed border-blue-500/30 hover:border-blue-500/50"
         title="Entrar em Servidor"
       >
-        <UserPlus className="w-6 h-6 text-blue-500 group-hover:text-white" />
+        <UserPlus className="w-6 h-6 transition-transform duration-300 group-hover:scale-110" />
       </button>
 
       {/* Modal de Criar Servidor */}

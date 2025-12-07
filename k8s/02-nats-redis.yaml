@@ -1,0 +1,199 @@
+# NATS JetStream Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-nats
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/instance: nexus-nats
+    app.kubernetes.io/component: messaging
+spec:
+  replicas: 1  # Para desenvolvimento. Em produção, usar 3+ para HA
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: nexus-nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats
+        app.kubernetes.io/instance: nexus-nats
+        app.kubernetes.io/component: messaging
+    spec:
+      containers:
+      - name: nats
+        image: nats:2.10-alpine
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 6222
+          name: cluster
+        - containerPort: 8222
+          name: monitor
+        args:
+        - "-js"
+        - "-sd"
+        - "/data"
+        - "--cluster_name"
+        - "nexus-cluster"
+        - "--max_payload"
+        - "8MB"
+        - "--max_connections"
+        - "1000"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: nats-data
+          mountPath: /data
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8222
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8222
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: nats-data
+        persistentVolumeClaim:
+          claimName: nexus-nats-pvc
+---
+# PVC para NATS
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-nats-pvc
+  namespace: nexus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Service para NATS
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-nats
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/instance: nexus-nats
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4222
+    targetPort: 4222
+    name: client
+  - port: 6222
+    targetPort: 6222
+    name: cluster
+  - port: 8222
+    targetPort: 8222
+    name: monitor
+  selector:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/instance: nexus-nats
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-redis
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: nexus-redis
+    app.kubernetes.io/component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: nexus-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: nexus-redis
+        app.kubernetes.io/component: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: nexus-redis-pvc
+---
+# PVC para Redis
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-redis-pvc
+  namespace: nexus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Service para Redis
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-redis
+  namespace: nexus
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: nexus-redis
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: nexus-redis
