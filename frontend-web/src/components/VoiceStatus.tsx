@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Mic, MicOff, PhoneOff, Settings } from 'lucide-react'
+import { Mic, MicOff, PhoneOff } from 'lucide-react'
 import { webrtcService } from '../services/webrtc'
-import { useAuthStore } from '../store/authStore'
+// import { useAuthStore } from '../store/authStore'
 
 interface VoiceStatusProps {
   channelName: string
@@ -9,7 +9,7 @@ interface VoiceStatusProps {
 }
 
 export default function VoiceStatus({ channelName, onDisconnect }: VoiceStatusProps) {
-  const user = useAuthStore((state) => state.user)
+  // const user = useAuthStore((state) => state.user) (unused)
   const [isMuted, setIsMuted] = useState(false)
 
   // Subscribe to mute state changes (Requirement 7.4)
@@ -56,8 +56,8 @@ export default function VoiceStatus({ channelName, onDisconnect }: VoiceStatusPr
           <button
             onClick={handleToggleMute}
             className={`p-1.5 rounded-lg transition-colors ${isMuted
-                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                : 'hover:bg-white/10 text-white/70 hover:text-white'
+              ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+              : 'hover:bg-white/10 text-white/70 hover:text-white'
               }`}
             title={isMuted ? 'Unmute' : 'Mute'}
           >

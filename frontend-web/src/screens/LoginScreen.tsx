@@ -6,7 +6,7 @@ import { LogIn } from 'lucide-react'
 import FloatingLines from '@/components/FloatingLinesBackground'
 import TextPressure from '@/components/TextPressure'
 
-const WAVES_CONFIG = ['top', 'middle', 'bottom'];
+const WAVES_CONFIG: ("top" | "middle" | "bottom")[] = ['top', 'middle', 'bottom'];
 
 const BackgroundLayer = memo(() => {
   return (
@@ -66,12 +66,12 @@ export default function LoginScreen() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black flex items-center justify-center font-sans">
-      
+
       <BackgroundLayer />
 
       <div className="relative z-10 w-full  max-w-md px-2">
         <div className="backdrop-blur-xl bg-black/20 border border-white/10 rounded-3xl shadow-[0_0_40px_-10px_rgba(100,0,255,0.1)] p-8">
-          
+
           <div className="flex flex-col items-center mb-10 h-24 justify-end">
             <div className="relative w-full flex justify-center">
               <div style={{ height: 'auto', width: '100%', position: 'relative' }}>
@@ -84,7 +84,7 @@ export default function LoginScreen() {
                   weight={true}
                   italic={true}
                   textColor="#ffffff"
-                  strokeColor="#a855f7" 
+                  strokeColor="#a855f7"
                   minFontSize={42}
                 />
               </div>

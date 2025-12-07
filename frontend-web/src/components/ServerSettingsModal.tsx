@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { X, Upload, Hash, Save, Trash2 } from 'lucide-react'
-import { api } from '../services/api'
+import { X, Upload, Hash, Save } from 'lucide-react'
+// import { api } from '../services/api'
 
 interface ServerSettingsModalProps {
     isOpen: boolean

@@ -16,7 +16,7 @@ export function BasicCircleExample() {
     // Simulate API call
     const formData = new FormData()
     formData.append('avatar', file)
-    
+
     // Replace with actual API call
     const response = await fetch('/api/users/avatar', {
       method: 'POST',
@@ -25,7 +25,7 @@ export function BasicCircleExample() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
       },
     })
-    
+
     const data = await response.json()
     setAvatarUrl(data.url)
     return data.url
@@ -51,7 +51,7 @@ export function SquareServerIconExample() {
   const handleUpload = async (file: File): Promise<string> => {
     const formData = new FormData()
     formData.append('icon', file)
-    
+
     // Replace with actual API call
     const response = await fetch('/api/servers/123/icon', {
       method: 'POST',
@@ -60,7 +60,7 @@ export function SquareServerIconExample() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
       },
     })
-    
+
     const data = await response.json()
     setIconUrl(data.url)
     return data.url
@@ -81,8 +81,8 @@ export function SquareServerIconExample() {
 
 // Example 3: Custom accepted formats (JPEG and PNG only)
 export function CustomFormatsExample() {
-  const handleUpload = async (file: File): Promise<string> => {
-    console.log('Uploading:', file.name)
+  const handleUpload = async (): Promise<string> => {
+    console.log('Uploading file...')
     // Simulate upload delay
     await new Promise(resolve => setTimeout(resolve, 2000))
     return 'https://example.com/uploaded-image.jpg'
@@ -102,12 +102,12 @@ export function CustomFormatsExample() {
 
 // Example 4: With error handling
 export function ErrorHandlingExample() {
-  const handleUpload = async (file: File): Promise<string> => {
+  const handleUpload = async (): Promise<string> => {
     // Simulate random failure for demonstration
     if (Math.random() > 0.5) {
       throw new Error('Network error: Failed to upload image')
     }
-    
+
     await new Promise(resolve => setTimeout(resolve, 1500))
     return 'https://example.com/uploaded-image.jpg'
   }
@@ -137,7 +137,7 @@ export function UserProfileIntegrationExample() {
   const handleAvatarUpload = async (file: File): Promise<string> => {
     const formData = new FormData()
     formData.append('avatar', file)
-    
+
     const response = await fetch(`/api/users/${user.id}/avatar`, {
       method: 'POST',
       body: formData,
@@ -145,16 +145,16 @@ export function UserProfileIntegrationExample() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
       },
     })
-    
+
     if (!response.ok) {
       throw new Error('Failed to upload avatar')
     }
-    
+
     const data = await response.json()
-    
+
     // Update user state
     setUser(prev => ({ ...prev, avatar: data.url }))
-    
+
     return data.url
   }
 
@@ -177,7 +177,7 @@ export function UserProfileIntegrationExample() {
             <p className="text-sm text-dark-300">User ID: {user.id}</p>
           </div>
         </div>
-        
+
         <ImageUpload
           currentImageUrl={user.avatar}
           onUpload={handleAvatarUpload}
