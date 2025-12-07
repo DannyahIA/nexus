@@ -121,7 +121,17 @@ export default function ChannelList({
       {/* Header do Servidor */}
       <div className="relative">
         <button
-          onClick={() => setShowServerMenu(!showServerMenu)}
+          onClick={(e) => {
+            e.stopPropagation()
+            setContextMenu(null)
+            setShowServerMenu(!showServerMenu)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setContextMenu(null)
+            setShowServerMenu(true)
+          }}
           className="w-full h-12 px-4 flex items-center justify-between border-b border-white/5 shadow-sm hover:bg-white/5 transition-colors"
         >
           <h2 className="font-semibold text-white/90 truncate tracking-wide text-sm uppercase">{serverName || 'Direct Messages'}</h2>
