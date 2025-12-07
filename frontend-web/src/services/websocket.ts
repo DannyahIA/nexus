@@ -1,5 +1,7 @@
 import { useAuthStore } from '../store/authStore'
 import { useChatStore } from '../store/chatStore'
+import { useFriendsStore } from '../store/friendsStore'
+import { api } from './api'
 import type { Message } from '../store/chatStore'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
@@ -132,22 +134,46 @@ export class WebSocketService {
             avatar: messageData.avatarUrl,
           }
           useChatStore.getState().addMessage(message)
+
+          // Update DM list if it's a DM channel
+          const friendsStore = useFriendsStore.getState()
+          const dmChannel = friendsStore.dmChannels.find(c => c.id === wsMsg.channelId)
+          if (dmChannel) {
+            friendsStore.updateDMChannel(dmChannel.id, {
+              lastMessage: message.content,
+              lastMessageAt: message.timestamp
+            })
+          } else {
+            // If we received a message for a channel we don't have, it might be a new DM
+            // Refresh DM list to check for new conversations
+            api.getDMs().then(res => {
+              const newDMs = res.data || []
+              friendsStore.setDMChannels(newDMs)
+              // Also subscribe to the new channel if found
+              const newChannel = newDMs.find((d: any) => d.id === wsMsg.channelId)
+              if (newChannel) {
+                this.subscribeToChannel(newChannel.id)
+              }
+            }).catch(console.error)
+          }
         }
         break
 
       case 'typing':
         if (wsMsg.data) {
           const typingData: TypingData = JSON.parse(wsMsg.data)
-          console.log(`${typingData.username} is ${typingData.isTyping ? 'typing' : 'stopped typing'}`)
-          // TODO: Atualizar UI com indicador de digitação
+          // console.log(`${typingData.username} is ${typingData.isTyping ? 'typing' : 'stopped typing'}`)
+          // TODO: Update UI with typing indicator
         }
         break
 
       case 'presence':
         if (wsMsg.data) {
           const presenceData: PresenceData = JSON.parse(wsMsg.data)
-          console.log(`User ${wsMsg.userId} is now ${presenceData.status}`)
-          // TODO: Atualizar lista de usuários online
+          // console.log(`User ${wsMsg.userId} is now ${presenceData.status}`)
+          if (wsMsg.userId) {
+            useFriendsStore.getState().updateFriendStatus(wsMsg.userId, presenceData.status)
+          }
         }
         break
 

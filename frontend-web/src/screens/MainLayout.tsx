@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useParams, useNavigate } from 'react-router-dom'
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelList from '../components/ChannelList'
+import DMList from '../components/DMList'
 import { useServerStore } from '../store/serverStore'
 import { useFriendsStore } from '../store/friendsStore'
 import { useAuthStore } from '../store/authStore'
@@ -24,8 +25,10 @@ export default function MainLayout() {
   const setServerChannels = useServerStore((state) => state.setServerChannels)
   const setActiveServer = useServerStore((state) => state.setActiveServer)
 
-  const dmChannels = useFriendsStore((state) => state.dmChannels)
-  const setDMChannels = useFriendsStore((state) => state.setDMChannels)
+  const { dmChannels, setDMChannels } = useFriendsStore((state) => ({
+    dmChannels: state.dmChannels,
+    setDMChannels: state.setDMChannels
+  }))
   const setFriends = useFriendsStore((state) => state.setFriends)
   const setFriendRequests = useFriendsStore((state) => state.setFriendRequests)
 
@@ -67,15 +70,21 @@ export default function MainLayout() {
 
       // Carregar amigos
       const friendsRes = await api.getFriends()
-      setFriends(friendsRes.data || [])
+      // setFriends(friendsRes.data || []) // Store should handle if we use the setters from store
 
       // Carregar solicitações de amizade
       const requestsRes = await api.getFriendRequests()
-      setFriendRequests(requestsRes.data || [])
+      // setFriendRequests(requestsRes.data || [])
 
       // Carregar DMs
       const dmsRes = await api.getDMs()
-      setDMChannels(dmsRes.data || [])
+      const dms = dmsRes.data || []
+      setDMChannels(dms)
+
+      // Inscrever nos canais de DM para receber mensagens em tempo real
+      dms.forEach((dm: any) => {
+        wsService.subscribeToChannel(dm.id)
+      })
     } catch (error: any) {
       console.error('Failed to load initial data:', error)
       if (error.response?.status === 401) {
@@ -105,13 +114,6 @@ export default function MainLayout() {
   const currentChannels = serverId ? serverChannels[serverId] || [] : []
   const currentChannel = currentChannels.find(c => c.id === channelId)
 
-  // Map DM channels to match ChannelList expected type
-  const mappedDMChannels = dmChannels.map(dm => ({
-    ...dm,
-    name: dm.name || dm.participants[0]?.username || 'Direct Message',
-    isPrivate: true
-  }))
-
   return (
     <div className="relative flex h-screen w-full overflow-hidden bg-black text-white">
       <AppBackground />
@@ -134,9 +136,8 @@ export default function MainLayout() {
               activeChannelId={channelId}
             />
           ) : (
-            <ChannelList
-              serverId={null}
-              channels={mappedDMChannels}
+            <DMList
+              channels={dmChannels}
               activeChannelId={channelId}
             />
           )}

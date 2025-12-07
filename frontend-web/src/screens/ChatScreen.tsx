@@ -233,6 +233,31 @@ export default function ChatScreen() {
       } else {
         wsService.sendMessage(channelId, messageToSend)
       }
+
+      // Atualizar lista de DMs com a última mensagem (Optimistic UI para a sidebar)
+      if (isDM) {
+        const friendsStore = useFriendsStore.getState()
+        const existingDM = friendsStore.dmChannels.find(d => d.id === channelId)
+
+        if (existingDM) {
+          friendsStore.updateDMChannel(channelId, {
+            lastMessage: messageToSend,
+            lastMessageAt: Date.now()
+          })
+        } else {
+          // Se o DM não existe na lista (ex: acabado de criar via URL ou Message button sem reload)
+          // Precisamos buscar os dados completos do DM ou recarregar a lista
+          api.getDMs().then(res => {
+            const dms = res.data || []
+            friendsStore.setDMChannels(dms)
+            // Também inscrever no novo canal se necessário
+            const newDM = dms.find((d: any) => d.id === channelId)
+            if (newDM) {
+              wsService.subscribeToChannel(channelId)
+            }
+          }).catch(console.error)
+        }
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
       setMessage(messageToSend) // Restaurar mensagem em caso de erro
@@ -451,35 +476,27 @@ export default function ChatScreen() {
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* DM User Info Banner (Discord-style) */}
             {isDM && otherUser && typeof otherUser === 'object' && 'username' in otherUser && messages.length === 0 && !loading && (
-              <div className="flex-1 flex items-center justify-center p-8">
-                <div className="text-center max-w-md">
-                  <div className="w-20 h-20 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl font-bold">
+              <div className="flex-1 flex items-center justify-center p-8 animate-fade-in">
+                <div className="text-center max-w-md bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
+                  <div className="w-24 h-24 bg-gradient-to-br from-primary-600 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-primary-500/20">
+                    <span className="text-4xl font-bold text-white">
                       {otherUser.username?.charAt(0).toUpperCase() || '?'}
                     </span>
                   </div>
-                  <h2 className="text-2xl font-bold mb-2">{otherUser.username}</h2>
-                  <p className="text-dark-400 mb-4">
-                    {t('dmStartMessage', { username: otherUser.username }).split('<1>').map((part, i) => {
-                      if (i === 0) return part
-                      const [username, rest] = part.split('</1>')
-                      return (
-                        <span key={i}>
-                          <span className="font-semibold text-white">{username}</span>
-                          {rest}
-                        </span>
-                      )
-                    })}
+                  <h2 className="text-3xl font-bold mb-3 text-white tracking-tight">{otherUser.username}</h2>
+                  <p className="text-white/60 mb-8 text-lg leading-relaxed">
+                    This is the beginning of your direct message history with <span className="text-white font-semibold">{otherUser.username}</span>.
                   </p>
-                  {'status' in otherUser ? (
-                    <div className="flex items-center justify-center gap-2 text-sm text-dark-400">
-                      <div className={`w-2 h-2 rounded-full ${(otherUser as any).status === 'online' ? 'bg-green-500' :
-                        (otherUser as any).status === 'idle' ? 'bg-yellow-500' :
-                          (otherUser as any).status === 'dnd' ? 'bg-red-500' : 'bg-gray-500'
+
+                  {'status' in otherUser && (
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/5 backdrop-blur-sm">
+                      <div className={`w-2.5 h-2.5 rounded-full shadow-lg shadow-current ${(otherUser as any).status === 'online' ? 'bg-green-500 text-green-500' :
+                        (otherUser as any).status === 'idle' ? 'bg-yellow-500 text-yellow-500' :
+                          (otherUser as any).status === 'dnd' ? 'bg-red-500 text-red-500' : 'bg-gray-500 text-gray-500'
                         }`} />
-                      <span className="capitalize">{t((otherUser as any).status || 'offline')}</span>
+                      <span className="capitalize text-sm font-medium text-white/80">{t((otherUser as any).status || 'offline')}</span>
                     </div>
-                  ) : null}
+                  )}
                 </div>
               </div>
             )}
