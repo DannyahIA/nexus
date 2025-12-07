@@ -76,8 +76,31 @@ type WebSocketServer struct {
 	logger        *zap.Logger
 }
 
-// upgrader will be initialized in main() with proper CORS configuration
-var upgrader websocket.Upgrader
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		// Allow no origin (e.g. mobile apps, curl)
+		if origin == "" {
+			return true
+		}
+
+		allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+		if allowedOrigins == "" {
+			// Default behavior for dev: allow everything
+			return true
+		}
+
+		for _, allowed := range strings.Split(allowedOrigins, ",") {
+			if strings.TrimSpace(allowed) == origin {
+				return true
+			}
+		}
+
+		return false
+	},
+}
 
 // NewWebSocketServer cria um novo servidor WebSocket
 func NewWebSocketServer(nc *nats.Conn, logger *zap.Logger) *WebSocketServer {
